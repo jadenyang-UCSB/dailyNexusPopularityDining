@@ -17,6 +17,10 @@ import cv2
 import random
 from scipy.optimize import linear_sum_assignment
 
+import numpy as np
+from matplotlib import pyplot as plts
+
+
 #Code from seperate files
 import seleniumFuncs
 import kaggleFuncs
@@ -25,7 +29,84 @@ import dataprep
 import trainModel
 import resNet
 
+
+class wrapper:
+    def __init__(self):
+        self.inside = []
+        self.outside = []
     
+    def push_in(self, value):
+        for i in self.inside:
+            if(compareHistogram(i["croppedImage"], value["croppedImage"]) and compareVector(i["color"], value["color"]) and comparePosition(i["position"], value["position"])):
+                print("Already exists")
+                return False
+        self.inside.append(value)
+        print("New person")
+        return True
+
+
+    def push_out(self, value):
+        for i in self.outside:
+            if(compareVector(i["color"], value["color"]) and comparePosition(i["color"], value["color"])):
+                return False
+        self.outside.append(value)
+        return True
+
+def hsv_hist(region):
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv[:, :, 1], 15, 255)
+    hist = cv2.calcHist([hsv], [0, 1], mask, [36, 32], [0, 180, 0, 256])
+    cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+    return hist.flatten()
+
+def removeBackground(img):
+    mask = np.zeros(img.shape[:2],np.uint8)
+    bgdModel = np.zeros((1,65),np.float64)
+    fgdModel = np.zeros((1,65),np.float64)
+
+
+    h, w = img.shape[:2]
+    rect = (1, 1, w, h)  
+
+    cv2.grabCut(img,mask,rect,bgdModel,fgdModel,5,cv2.GC_INIT_WITH_RECT)
+    mask2 = np.where((mask==2)|(mask==0),0,1).astype('uint8')
+    img = img*mask2[:,:,np.newaxis]
+    return img
+        # assert img is not None, "file could not be read, check with os.path.exists()"
+
+
+def process_crop(image):
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    
+    clahe = cv2.createCLAHE(clipLimit= 2.0, tileGridSize=(4,4))
+    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+    return cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
+
+def compareHistogram(image_A, image_B):
+    if(image_A.shape[0] < 90 or image_B.shape[0] < 90):
+        print("Shape is too small")
+        return False
+
+    a = process_crop(image_A)
+    b = process_crop(image_B)
+
+    height_a = a.shape[0]
+    height_b = b.shape[0]
+    mid_a = height_a//2
+    mid_b = height_b//2
+
+    upperA = image_A[:mid_a, :]
+    lowerA = image_A[mid_a : , :]
+
+    upperB = image_B[:mid_b, :]
+    lowerB = image_B[mid_b : , :]
+
+    upperHist = cv2.compareHist(hsv_hist(upperA), hsv_hist(upperB), cv2.HISTCMP_BHATTACHARYYA)
+    print(upperHist)
+    lowerHist = cv2.compareHist(hsv_hist(lowerA), hsv_hist(lowerB), cv2.HISTCMP_BHATTACHARYYA)
+    print(lowerHist)
+    return upperHist < 0.6 and lowerHist < 0.6
+
 def compareVector(vec_A, vec_B):
     if(vec_B is None):
         return False
@@ -35,7 +116,6 @@ def compareVector(vec_A, vec_B):
     magB = np.linalg.norm(vec_B)
     denom = magA * magB
     if denom == 0:
-        print("This is always printing")
         return False
     overall = number/denom
     # print(overall)
@@ -50,50 +130,20 @@ def comparePosition(pos_A, pos_B):
     distance = ((pos_A[0] - pos_B[0])**2 + (pos_A[1] - pos_B[1])**2)**0.5
     
     if(distance < 200):
-        return True, distance
-    return False, distance
+        return True
+    
+    return False
 
-def fingerPrint(point, crop_upper,crop_lower):
-    x1,y1,x2,y2 = point
-    hsv = cv2.cvtColor(crop_upper,cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv[:,:,1], 50, 255)
-    upper_hist = cv2.calcHist([hsv],[0,1],mask,[180,64], [0,180, 0,256])
-    cv2.normalize(upper_hist, upper_hist, 0, 1, cv2.NORM_MINMAX)
-
-    hsv = cv2.cvtColor(crop_lower,cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv[:,:,1], 50, 255)
-    lower_hist = cv2.calcHist([hsv],[0,1],mask,[180,64], [0,180, 0,256])
-    cv2.normalize(lower_hist, lower_hist, 0, 1, cv2.NORM_MINMAX)
-
-    return {
-    "upper": upper_hist,
-    "lower": lower_hist,
-    "height": (y2-y1)/2,
-    "pos": ((x2+x1)/2,y2),
-    "missing": 0,
-    "previousPos": ((x2+x1)/2,y2),
-    "id": None
-    }
-
-def calculateCost(point,crop):
-    height = crop.shape[0]
-    fp = fingerPrint(point,crop[height//2:,:],crop[:height//2,:])
-    return fp
-
-def inside_point(poly, p):
-    return cv2.pointPolygonTest(poly,p,False) >= 0
 
 def main():
     #These variables are mainly for tracking
-    total_number = 0
-    id_num = 0
+    # total_number = 0
+    # id_num = 0
     previous_frame = None
     MISSINGFRAME = 3
     #This opens the google chrome
     webChrome = webdriver.Chrome()
-    webChrome.get(config.API_KEYORTEGA)
-
-    previous_arr = []
+    webChrome.get(config.API_KEYDLG)
 
     #This organizes the data. I used kaggle to get my datas
     if(os.path.exists("/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3")):
@@ -120,24 +170,26 @@ def main():
     #AI Stuff
     model = YOLO("yolo11s.pt")
     
-    while True:
-        current_arr = []
+    flow = wrapper()
 
+    while True:
+        # color_vector_list = []
+        time.sleep(5)
         seleniumFuncs.reload(webChrome)
+        
         pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
         originalPicture = pictureWeb.get_attribute("src")
+
         with open (pathtoBlank,"wb") as file:
             file.write(requests.get(originalPicture).content)
-
         npBlank = cv2.imread(pathtoBlank)
-        cv2.destroyAllWindows()
 
         #Ensures that it's a different picture each time
         if(previous_frame is not None):
             if(np.array_equal(previous_frame,npBlank)):
+                print("Skipping cause same picture")
                 continue
         previous_frame = npBlank.copy()
-
         tracking = model(pathtoBlank)
 
         #Sanity Checker to ensure that the active number is counting
@@ -146,15 +198,16 @@ def main():
         fittedData = np.expand_dims(array_target,axis=0)
         sanityCheck = people_counter_model.predict(fittedData)
         print(sanityCheck)
-
-
-        image = cv2.imread(pathtoBlank)
-
+    
+        #Detection stuff
         for b in tracking[0].boxes:
-            if b.cls.item() != 0:
+            
+            if b.cls.item() != 0 or float(b.conf) < 0.5 or b.conf == None:
+                print("Skipping")
                 continue
+            else:
+                print("It's fine let's continue", float(b.conf))
             #Setting the coordinate plane
-
             coordinate_point = []
             floats = b.xyxy[0].tolist()
             x1, y1, x2, y2 = floats
@@ -163,95 +216,101 @@ def main():
             middle_X = (x2 + x1)/2
             middle_Y = (y2 + y1)/2
             coordinate_point.append(middle_X)
-            coordinate_point.append(middle_Y)
-            croppedImage = image[inty0:inty1,intx0:intx1]
-            hist = calculateCost((intx0,inty0,intx1,inty1),croppedImage)
-            current_arr.append(hist)
-
-        if len(previous_arr) == 0:
-            for new_object in current_arr:
-                new_object["id"] = id_num
-                id_num += 1
-
-            previous_arr = current_arr
-
-            continue
-        
-        costMatrix = np.zeros((len(previous_arr),len(current_arr)),dtype= np.float32)
-
-        for i, prev_obj in enumerate(previous_arr):
-            for j, curr_obj in enumerate(current_arr):
-                upper = cv2.compareHist(prev_obj["upper"],curr_obj["upper"],cv2.HISTCMP_BHATTACHARYYA)
-                lower = cv2.compareHist(prev_obj["lower"], curr_obj["lower"],cv2.HISTCMP_BHATTACHARYYA)
-                distance = np.array(prev_obj["pos"],dtype=np.float32) - np.array(curr_obj["pos"],dtype=np.float32)
-                total_distance = np.linalg.norm(distance) / 500
-                normal_distance = min(total_distance,1.0)
-                totalCost = (upper*0.45) + (lower*0.45) + (normal_distance * 0.1)
-                costMatrix[i][j] = totalCost
-
-
-        
-        row_cost, col_cost = linear_sum_assignment(costMatrix)
-
-        matched_pairs = []
-        matched_prev = []
-        matched_curr = []
-        removed = set()
-        final_removed = []
-
-        for prev_index,new_index in zip(row_cost,col_cost):
-            pid = previous_arr[prev_index]["id"]
-            if (costMatrix[prev_index][new_index] < 0.6):
-                matched_prev.append(pid)
-                matched_curr.append(current_arr[new_index]["id"])
-                matched_pairs.append((prev_index,new_index,pid))
-
-        dupe_entry = []
-
-        for pairs in matched_pairs:
-            old = pairs[0]
-            new = pairs[1]
-            pid = pairs[2]
-            current_arr[new]["id"] = pid
-            dupe_entry.append(pid)
-            current_arr[new]["previousPos"] = previous_arr[old]["pos"]
-            current_arr[new]["missing"] = 0
-
-        for prev_object in previous_arr:
-            pid = prev_object["id"]
-            if pid not in matched_prev:
-                prev_object["missing"] += 1
-                if(prev_object["missing"] >= MISSINGFRAME):
-                    removed.add(pid)
-                    print("This is the previousPose", prev_object["previousPos"][1])
-                    print("This is the position", prev_object["pos"][1])
-                    if(prev_object["previousPos"][1] - prev_object["pos"][1]) > 0:
-                        print("I added a number")
-                        total_number += 1
-                    else:
-                        print("I subtracted one")
-                        total_number -= 1
-            elif pid in dupe_entry:
-                removed.add(pid)
-        
-
-
-        for j, curr_object in enumerate(current_arr):
-            if j not in matched_curr:
-                curr_object["id"] = id_num
-                id_num += 1
-
-        for previous in previous_arr:
-            if(previous["id"] not in dupe_entry or previous["id"] not in removed):
-                final_removed.append(previous)
-        
-        for current in current_arr:
-            final_removed.append(current)
-
-        previous_arr = final_removed
-        print(total_number)
+            coordinate_point.append(middle_Y) #YOU HAVE COORDINATE POINT
+            image = cv2.imread(pathtoBlank)
+            
+            cv2.imwrite("./copy_image.jpg",image)
+            image = cv2.imread("./copy_image.jpg")
+            
+            cropImage = image[inty0:inty1,intx0:intx1]
+            personVector = resNet.colorVector(cropImage) #YOU HAVE THE COLOR VECTOR OF THE PERSON
+            if(abs(y2-y1) > 90):
+                flow.push_in(
+                    {"color":personVector, 
+                    "croppedImage": removeBackground(cropImage),
+                    "position":coordinate_point, 
+                    "time": 0, 
+                    "direction": None}
+                )
+            else:
+                print("I am not pushing this because it's way too small with a size of ", abs(y2-y1))
+            print('HOW MANY UNIQUE PPL', len(flow.inside))
 
     webChrome.close()
 
 
+
 main()
+
+
+            # for p in vector_inside:
+            #     if compareVector(p, personVector):
+            #         continue
+# def fingerPrint(point, crop_upper,crop_lower):
+#     x1,y1,x2,y2 = point
+#     hsv = cv2.cvtColor(crop_upper,cv2.COLOR_BGR2HSV)
+#     mask = cv2.inRange(hsv[:,:,1], 50, 255)
+#     upper_hist = cv2.calcHist([hsv],[0,1],mask,[180,64], [0,180, 0,256])
+#     cv2.normalize(upper_hist, upper_hist, 0, 1, cv2.NORM_MINMAX)
+
+#     hsv = cv2.cvtColor(crop_lower,cv2.COLOR_BGR2HSV)
+#     mask = cv2.inRange(hsv[:,:,1], 50, 255)
+#     lower_hist = cv2.calcHist([hsv],[0,1],mask,[180,64], [0,180, 0,256])
+#     cv2.normalize(lower_hist, lower_hist, 0, 1, cv2.NORM_MINMAX)
+
+#     return {
+#     "upper": upper_hist,
+#     "lower": lower_hist,
+#     "height": (y2-y1)/2,
+#     "pos": ((x2+x1)/2,y2),
+#     "missing": 0,
+#     "previousPos": ((x2+x1)/2,y2),
+#     "id": None
+#     }
+
+# def calculateCost(point,crop):
+#     height = crop.shape[0]
+#     fp = fingerPrint(point,crop[height//2:,:],crop[:height//2,:])
+#     return fp
+
+
+#    while True:
+
+#         entering_interval = []
+#         exiting_interval = []
+
+#         vector_inside = []
+
+#         enter_people = 0
+#         exit_people = 0
+
+#         overall = 0
+#         seleniumFuncs.reload(webChrome)
+#         pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
+#         originalPicture = pictureWeb.get_attribute("src")
+#         with open (pathtoBlank,"wb") as file:
+#             file.write(requests.get(originalPicture).content)
+
+#         npBlank = cv2.imread(pathtoBlank)
+#         cv2.destroyAllWindows()
+
+#         #Ensures that it's a different picture each time
+#         if(previous_frame is not None):
+#             if(np.array_equal(previous_frame,npBlank)):
+#                 continue
+#         previous_frame = npBlank.copy()
+
+#         tracking = model(pathtoBlank)
+
+#         #Sanity Checker to ensure that the active number is counting
+#         data_fitting = load_img(pathtoBlank, target_size = (128,128))
+#         array_target = np.array(data_fitting)/255
+#         fittedData = np.expand_dims(array_target,axis=0)
+#         sanityCheck = people_counter_model.predict(fittedData)
+#         print(sanityCheck)
+
+
+#         image = cv2.imread(pathtoBlank)
+
+# def inside_point(poly, p):
+#     return cv2.pointPolygonTest(poly,p,False) >= 0
