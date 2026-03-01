@@ -1,1 +1,20 @@
-config.py
+# secrets
+.env
+*.env
+
+# virtual env
+.venv/
+
+# python cache
+__pycache__/
+*.pyc
+
+# models / weights
+*.pt
+
+# generated images/logs
+copy_image.jpg
+blank.jpeg
+
+# mac
+.DS_Store

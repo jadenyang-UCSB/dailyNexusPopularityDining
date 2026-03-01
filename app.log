@@ -1,0 +1,46 @@
+2026-02-28 20:22:28,853 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:22:36,808 [INFO] We are changing direction as they were 353.3400421142578 and now at 352.2613067626953... FALSE
+2026-02-28 20:22:36,970 [INFO] We are changing direction as they were 479.4409637451172 and now at 479.6497497558594... TRUE
+2026-02-28 20:22:36,971 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:22:44,889 [INFO] We are changing direction as they were 352.2613067626953 and now at 349.4032669067383... FALSE
+2026-02-28 20:22:45,059 [INFO] We are changing direction as they were 479.6497497558594 and now at 478.43763732910156... FALSE
+2026-02-28 20:22:45,060 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:22:53,368 [INFO] We are changing direction as they were 349.4032669067383 and now at 347.9824523925781... FALSE
+2026-02-28 20:22:54,265 [INFO] We are changing direction as they were 478.43763732910156 and now at 498.5262756347656... TRUE
+2026-02-28 20:22:54,267 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:23:04,381 [INFO] We are changing direction as they were 347.9824523925781 and now at 351.0606918334961... TRUE
+2026-02-28 20:23:04,483 [INFO] We are changing direction as they were 326.7391357421875 and now at 223.1272964477539... FALSE
+2026-02-28 20:23:04,953 [INFO] We are changing direction as they were 385.6277160644531 and now at 184.77165603637695... FALSE
+2026-02-28 20:23:05,086 [INFO] We are changing direction as they were 425.2687072753906 and now at 401.96055603027344... FALSE
+2026-02-28 20:23:05,187 [INFO] We are changing direction as they were 223.1272964477539 and now at 218.71013641357422... FALSE
+2026-02-28 20:23:05,373 [INFO] We are changing direction as they were 498.5262756347656 and now at 478.94618225097656... FALSE
+2026-02-28 20:23:05,481 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:23:15,935 [INFO] We are changing direction as they were 478.94618225097656 and now at 478.15928649902344... FALSE
+2026-02-28 20:23:16,010 [INFO] We are changing direction as they were 184.77165603637695 and now at 178.88776779174805... FALSE
+2026-02-28 20:23:16,078 [INFO] We are changing direction as they were 218.71013641357422 and now at 161.77923583984375... FALSE
+2026-02-28 20:23:16,193 [INFO] We are changing direction as they were 351.0606918334961 and now at 363.1495819091797... TRUE
+2026-02-28 20:23:16,318 [INFO] We are changing direction as they were 178.88776779174805 and now at 165.79569244384766... FALSE
+2026-02-28 20:23:16,529 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:23:24,283 [INFO] We are changing direction as they were 161.77923583984375 and now at 147.46307373046875... FALSE
+2026-02-28 20:23:24,364 [INFO] We are changing direction as they were 147.46307373046875 and now at 142.84768295288086... FALSE
+2026-02-28 20:23:24,473 [INFO] We are changing direction as they were 165.79569244384766 and now at 194.1167984008789... TRUE
+2026-02-28 20:23:24,569 [INFO] We are changing direction as they were 363.1495819091797 and now at 348.9456481933594... FALSE
+2026-02-28 20:23:24,761 [INFO] We are changing direction as they were 478.15928649902344 and now at 478.18556213378906... TRUE
+2026-02-28 20:23:24,814 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:23:32,796 [INFO] We are changing direction as they were 330.7966766357422 and now at 361.9468078613281... TRUE
+2026-02-28 20:23:33,056 [INFO] We are changing direction as they were 361.9468078613281 and now at 363.595947265625... TRUE
+2026-02-28 20:23:33,142 [INFO] We are changing direction as they were 142.84768295288086 and now at 147.2676544189453... TRUE
+2026-02-28 20:23:33,262 [INFO] We are changing direction as they were 348.9456481933594 and now at 361.4507598876953... TRUE
+2026-02-28 20:23:33,461 [INFO] We are changing direction as they were 478.18556213378906 and now at 478.45947265625... TRUE
+2026-02-28 20:23:33,462 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:23:41,323 [INFO] We are changing direction as they were 361.4507598876953 and now at 352.44952392578125... FALSE
+2026-02-28 20:23:41,488 [INFO] We are changing direction as they were 478.45947265625 and now at 470.77020263671875... FALSE
+2026-02-28 20:23:41,488 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:23:51,735 [INFO] We are changing direction as they were 352.44952392578125 and now at 354.7216796875... TRUE
+2026-02-28 20:23:51,736 [INFO] Put in flow.outside
+2026-02-28 20:23:51,736 [INFO] Put it in flow.inside
+2026-02-28 20:29:20,137 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:29:28,303 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:29:36,291 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-02-28 20:29:44,225 [INFO] Put in flow.outside (exited)
+2026-02-28 20:29:44,225 [INFO] Put it in flow.inside (entered)
