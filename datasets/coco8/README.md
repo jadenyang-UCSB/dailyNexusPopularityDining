@@ -1,12 +1,23 @@
-# Ultralytics COCO8 Dataset
+# Wattpad Scraper
+## Purpose
+    This webscraper scrapes wattpad genres and stories. This webscraper gathers the title, story link, reads, votes, and comments of each story.
+## Format of the data
+    "Title": "(Titles)",
+    "Story Link": (Link of the wattpad general story),
+    "Reads": "Amount of reads",
+    "Votes": "Amount of votes",
+    "Story Details": 
+        {
+            "link": "(Chapter link)",
+            "views": "(views on chapter)",
+            "likes": "(likes on chapter)",
+            "number of comments": "(number of comments)",
+            "comments": [
+                "(Exact comments)"
+            ]
+        },
+## How it works.
 
-Ultralytics COCO8 is a small, but versatile object detection dataset composed of the first 8 images of the COCO train
-2017 set, 4 for training and 4 for validation. This dataset is ideal for testing and debugging object detection models,
-or for experimenting with new detection approaches. With 8 images, it is small enough to be easily manageable, yet
-diverse enough to test training pipelines for errors and act as a sanity check before training larger datasets.
-
-This dataset is intended for use with Ultralytics YOLOv8.
-
-Docs: https://docs.ultralytics.com
-Community: https://community.ultralytics.com
-GitHub: https://github.com/ultralytics/ultralytics
+## Media Neuroscience Lab
+# Undergraduate Researcher -- Jaden
+# Undergraduate Researcher -- Krithi
