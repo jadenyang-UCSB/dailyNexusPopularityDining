@@ -93,10 +93,6 @@ class wrapper:
             print(score)
             print("In there")
             logging.info("Already in there")
-            # cv2.imshow("Pic One", value["croppedImage"])
-            # cv2.waitKey(0)
-            # cv2.imshow("Pic Two", entry["croppedImage"])
-            # cv2.waitKey(0)
             entry["color"] = value["color"]
             entry["croppedImage"] = value["croppedImage"]
             entry["time"] = 0
@@ -201,35 +197,14 @@ def inside_point(poly, p):
 def main():
     # These variables are mainly for tracking
     previous_frame = None
-    # Frames without re-ID before we count person as entered/exited (each frame = 5 sec image).
-    # Lower = faster counting but more sensitive to missed detections. 3 = 15 sec.
     MISSING_FRAMES_THRESHOLD = 3
     # This opens the google chrome
     webChrome = webdriver.Chrome()
     webChrome.get(CARRILLO_URL)
 
-    #This organizes the data. I used kaggle to get my datas
-    if(os.path.exists("/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3")):
-        kaggle_data = "/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3"
-        csv_data = os.path.join(kaggle_data,"labels.csv")
-    else:
-        kaggle_data = kaggleFuncs.testingkaggleAPI()
-        csv_data = os.path.join(kaggle_data,"labels.csv")
-
-    #Organizes my data
-    dictData = organizationData.dictionaryData(csv_data)
-    array_pic, array_count = dataprep.resizeImage(dictData)
-
     #Important Paths:
-    pathtoBlank = "./blank.jpeg"
+    pathtoBlank = os.getenv("BLANKJPG")
     
-    #Training
-    if os.path.exists("./peopleCounter.keras"):
-        people_counter_model = load_model("./peopleCounter.keras")
-        history = None
-    else:
-        people_counter_model,history = trainModel.train(array_pic,array_count)
-
     #AI Stuff
     model = YOLO("yolo11s.pt")
     
@@ -237,7 +212,7 @@ def main():
 
     messages = ["None", "Empty", "Quiet", "Moderate", "High", "Near Capacity"]
     current_idx = 1
-
+    
     while True:
         # color_vector_list = []
         time.sleep(5)
@@ -270,7 +245,7 @@ def main():
 
         #Sanity Checker to ensure that the active number is counting
             #Coming very soon and next feature I hope to implement
-            
+
         # data_fitting = load_img(pathtoBlank, target_size = (128,128))
         # array_target = np.array(data_fitting)/255
         # fittedData = np.expand_dims(array_target,axis=0)
@@ -298,7 +273,7 @@ def main():
             coordinate_point.append(middle_Y) # base center point
             image = cv2.imread(pathtoBlank)
             
-            cv2.imwrite("./copy_image.jpg",image)
+            cv2.imwrite(os.getenv("COPYJPG"),image)
             image = cv2.imread("./copy_image.jpg")
             
             cropImage = image[inty0:inty1,intx0:intx1]
@@ -413,5 +388,5 @@ def main():
     webChrome.close()
 
 
-
-main()
+if __name__ == "__main__":
+    main()
