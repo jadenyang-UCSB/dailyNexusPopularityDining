@@ -133,8 +133,6 @@ def process_crop(image):
     
     clahe = cv2.createCLAHE(clipLimit= 2.0, tileGridSize=(4,4))
     lab[:, :, 0] = clahe.apply(lab[:, :, 0])
-    cv2.imshow("ColorThing", cv2.cvtColor(lab, cv2.COLOR_Lab2BGR))
-    cv2.waitKey(1) 
     
     return cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
 
@@ -212,7 +210,7 @@ def main():
 
     messages = ["None", "Empty", "Quiet", "Moderate", "High", "Near Capacity"]
     current_idx = 1
-    
+
     while True:
         # color_vector_list = []
         time.sleep(5)

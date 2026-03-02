@@ -17,4 +17,4 @@ copy_image.jpg
 blank.jpeg
 
 # mac
-.DS_Store
+.DS_Store.env
