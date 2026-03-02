@@ -26,9 +26,7 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import load_img, img_to_array
 from ultralytics import YOLO
 import cv2
-import random
 # from scipy.optimize import linear_sum_assignment
-import heapq
 
 import numpy as np
 from matplotlib import pyplot as plts
