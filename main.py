@@ -269,11 +269,13 @@ def main():
         tracking = model(pathtoBlank)
 
         #Sanity Checker to ensure that the active number is counting
-        data_fitting = load_img(pathtoBlank, target_size = (128,128))
-        array_target = np.array(data_fitting)/255
-        fittedData = np.expand_dims(array_target,axis=0)
-        sanityCheck = people_counter_model.predict(fittedData)
-        print(sanityCheck)
+            #Coming very soon and next feature I hope to implement
+            
+        # data_fitting = load_img(pathtoBlank, target_size = (128,128))
+        # array_target = np.array(data_fitting)/255
+        # fittedData = np.expand_dims(array_target,axis=0)
+        # sanityCheck = people_counter_model.predict(fittedData)
+        # print(sanityCheck)
     
         #Detection stuff
         for b in tracking[0].boxes:
