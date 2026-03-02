@@ -72,7 +72,7 @@ class wrapper:
         if "weight" not in value:
             value["weight"] = 1
         # Re-ID match threshold (0–1). Slightly lower = more matches, more risk of merging two people.
-        mean = 0.95
+        mean = 0.90
         pq = []
         # Weights tuned for 5-sec intervals: rely more on appearance (hist+ResNet), less on position.
         for i in self.counted:
