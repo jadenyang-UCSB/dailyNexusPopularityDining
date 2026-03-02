@@ -55,31 +55,26 @@ import resNet
 import scalar_utils
 
 import osnet
-# Re-ID feature extractor: "osnet" (person Re-ID model) or "resnet" (generic CNN)
-
-# USE_OSNET = True  # set False to use resNet.colorVector() instead
-# if USE_OSNET:
-#     import osnet
-#     def _reid_vector(crop_bgr):
-#         return osnet.osnet_vector(crop_bgr)
-# else:
-#     def _reid_vector(crop_bgr):
-#         return resNet.colorVector(crop_bgr)
-
 
 class wrapper:
     def __init__(self):
-        self.inside = []   # entered (last seen in outside/entrance zone)
-        self.outside = []  # exited (last seen in inside/dining zone)
+        self.in_overflow = []
+        self.inside = []
+        self.out_overflow = []
+        self.outside = []
         self.counted = []
         self.best_score = 0
+
     def cos01(self,a,b):
         c = np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
         return (c + 1) / 2
 
     def push_value(self, value):
+        # Default weight = 1 person unless specified (for wide/group boxes)
+        if "weight" not in value:
+            value["weight"] = 1
         # Re-ID match threshold (0–1). Slightly lower = more matches, more risk of merging two people.
-        mean = 0.7
+        mean = 0.95
         pq = []
         # Weights tuned for 5-sec intervals: rely more on appearance (hist+ResNet), less on position.
         for i in self.counted:
@@ -95,9 +90,18 @@ class wrapper:
         
 
         if score >= mean:
+            print(score)
+            print("In there")
+            logging.info("Already in there")
+            # cv2.imshow("Pic One", value["croppedImage"])
+            # cv2.waitKey(0)
+            # cv2.imshow("Pic Two", entry["croppedImage"])
+            # cv2.waitKey(0)
             entry["color"] = value["color"]
             entry["croppedImage"] = value["croppedImage"]
             entry["time"] = 0
+            # Keep the larger weight if we ever see this person as part of a wide/group box
+            entry["weight"] = max(entry.get("weight", 1), value.get("weight", 1))
             # Use current zone (inside/outside polygon) for direction, not position delta.
             # direction True = in inside_poly, False = in outside_poly.
             entry["direction"] = value["direction"]
@@ -127,7 +131,6 @@ def removeBackground(img):
     mask2 = np.where((mask==2)|(mask==0),0,1).astype('uint8')
     img = img*mask2[:,:,np.newaxis]
     return img
-        # assert img is not None, "file could not be read, check with os.path.exists()"
 
 def process_crop(image):
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
@@ -135,6 +138,8 @@ def process_crop(image):
     clahe = cv2.createCLAHE(clipLimit= 2.0, tileGridSize=(4,4))
     lab[:, :, 0] = clahe.apply(lab[:, :, 0])
     cv2.imshow("ColorThing", cv2.cvtColor(lab, cv2.COLOR_Lab2BGR))
+    cv2.waitKey(1) 
+    
     return cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
 
 def compareHistogram(image_A, image_B):
@@ -250,14 +255,15 @@ def main():
 
         # Coordinate finder
         npBlank = cv2.imread(pathtoBlank)
+
         # cv2.imshow("Image",npBlank)
         # cv2.setMouseCallback("Image", click_event)
         # cv2.waitKey(0)
         # cv2.destroyAllWindows
+
         #Ensures that it's a different picture each time
         if(previous_frame is not None):
             if(np.array_equal(previous_frame,npBlank)):
-                print("Skipping cause same picture")
                 continue
         previous_frame = npBlank.copy()
         tracking = model(pathtoBlank)
@@ -279,12 +285,15 @@ def main():
             coordinate_point = []
             floats = b.xyxy[0].tolist()
             x1, y1, x2, y2 = floats
+            width = x2 - x1
+            height = y2 - y1
+            area = width * height
             
             intx0,inty0,intx1,inty1 = map(int, floats)
             middle_X = (x2 + x1)/2
             middle_Y = (y2 + y1)/2
             coordinate_point.append(middle_X)
-            coordinate_point.append(middle_Y) #YOU HAVE COORDINATE POINT
+            coordinate_point.append(middle_Y) # base center point
             image = cv2.imread(pathtoBlank)
             
             cv2.imwrite("./copy_image.jpg",image)
@@ -292,78 +301,108 @@ def main():
             
             cropImage = image[inty0:inty1,intx0:intx1]
             personVector = osnet.osnet_vector(cropImage)
-        
+
+            # --- Simple group handling (weight, not duplicate tracks) ---
+            # If a bounding box is very wide, treat it as a group and give this track a
+            # \"weight\" equal to estimated number of people.
+            GROUP_MIN_WIDTH = 120.0   # px; below this, treat as single person
+            AVG_PERSON_WIDTH = 40.0   # px; estimated width of one person in your view
+            MAX_GROUP_SIZE = 5        # avoid insane group counts from one box
+
+            if width >= GROUP_MIN_WIDTH:
+                print("This is a group")
+                est_group = max(1, int(round(width / AVG_PERSON_WIDTH)))
+                group_weight = min(est_group, MAX_GROUP_SIZE)
+            else:
+                group_weight = 1
+            
             inside_poly = np.array([
-                [0,0],
-                [178,569],
-                [513,183],
-                [638,6]
+                [4,3],
+                [438,5],
+                [442,191],
+                [5,494]
             ], dtype=np.int32)
             
             outside_poly = np.array([
-                [400,570],
-                [886,557],
-                [955.,21],
-                [890,2]
+                [377,570],
+                [676,203],
+                [824,284],
+                [762,569]
             ], dtype=np.int32)
-            # debug_image = npBlank.copy()
-            # cv2.polylines(debug_image, [inside_poly], True, (0, 255, 0), 2)    # green = inside
-            # cv2.polylines(debug_image, [outside_poly], True, (0, 0, 255), 2)   # red = outsid
-            # cv2.imshow("I hate this", debug_image)
-            # cv2.waitKey(0)
-            if(inside_point(inside_poly, (intx1,inty1)) or inside_point(inside_poly, coordinate_point) or inside_point(inside_poly, (intx0,inty0))):
-                # logging.info("inside has been activated")
-                flow.push_value(
-                    {"color":personVector, 
-                    "croppedImage": removeBackground(cropImage),
-                    "position":coordinate_point, 
-                    "time": 0, 
-                    "direction": True}
-                )
-            elif(inside_point(outside_poly, (intx1,inty1)) or inside_point(outside_poly, coordinate_point) or inside_point(outside_poly, (intx0,inty0))):
-                # logging.info("Outside has been activated")
-                flow.push_value(
-                    {"color":personVector, 
-                    "croppedImage": removeBackground(cropImage),
-                    "position":coordinate_point, 
-                    "time": 0, 
-                    "direction": False}
-                )
+
+            # Single logical track per box, but with a \"weight\" that tells us how many
+            # people we think are inside that box (for count/flow updates).
+
+            pos = [middle_X, middle_Y]
+            base_value = {
+                "color": personVector,
+                "croppedImage": removeBackground(cropImage),
+                "position": pos,
+                "time": 0,
+                "weight": group_weight,
+            }
+
+            if (inside_point(inside_poly, (intx0,inty0))):
+                logging.info(f"We just initalized a person and we put them initally inside with a weight of {group_weight}")
+                v = base_value.copy()
+                v["direction"] = True
+                flow.push_value(v)
+            elif (inside_point(outside_poly, (intx1,inty1))):
+                logging.info(f"We just initalized a person and we put them initally outside with a weight of {group_weight}")
+                v = base_value.copy()
+                v["direction"] = False
+                flow.push_value(v)
 
         flow_remove = []
 
-        for timer in flow.counted:
+        for idx, timer in enumerate(flow.counted):
             missed_frames = scalar_utils.to_int(timer["time"])
             direction = scalar_utils.to_bool(timer["direction"])
-            if missed_frames >= MISSING_FRAMES_THRESHOLD and not direction:
-                # Last seen in outside_poly (entrance) → count as entered
+            weight = timer.get("weight", 1)
+            if missed_frames >= MISSING_FRAMES_THRESHOLD and direction:
+                # Last seen in outside_poly (entrance) → treat as entered dining hall
                 logging.info("Put it in flow.inside (entered)")
-                flow.outside.append(timer)
-                flow_remove.append(timer)
-            elif missed_frames >= MISSING_FRAMES_THRESHOLD and direction:
-                # Last seen in inside_poly (dining) → count as exited
+                for _ in range(weight):
+                    flow.inside.append(timer)
+                flow_remove.append(idx)
+            elif missed_frames >= MISSING_FRAMES_THRESHOLD and not direction:
                 logging.info("Put in flow.outside (exited)")
-                flow.inside.append(timer)
-                flow_remove.append(timer)
+                for _ in range(weight):
+                    flow.outside.append(timer)
+                flow_remove.append(idx)
             elif missed_frames >= MISSING_FRAMES_THRESHOLD:
-                flow_remove.append(timer)
+                flow_remove.append(idx)
         
-        for item_remove in flow_remove:
-            flow.counted.remove(item_remove)
+        for item_remove in sorted(flow_remove, reverse=True):
+            del flow.counted[item_remove]
         
-        if(len(flow.inside) >= 40):
-            current_idx += 1
+        # Tune thresholds so the status moves more often; each ~15–20 people shifts a level
+        INSIDE_STEP = 20
+        OUTSIDE_STEP = 20
+        if len(flow.inside) >= INSIDE_STEP:
+            if(len(flow.out_overflow) != 0):
+                flow.out_overflow.pop()
+            else:
+                current_idx += 1
             flow.inside = []
-        if(len(flow.outside) >= 40):
-            current_idx -= 1
+
+        if len(flow.outside) >= OUTSIDE_STEP:
+            if(len(flow.in_overflow) != 0):
+                flow.in_overflow.pop()
+            else:
+                current_idx -= 1
             flow.outside = []
         
         if(current_idx >= 5):
+            flow.in_overflow.append("over")
             current_idx = 5
         elif(current_idx <= 0):
+            flow.out_overflow.append("over")
             current_idx = 1
 
         logging.info(f"Flow Inside {len(flow.inside)}. Flow Outside: {len(flow.outside)}. Current overall: {messages[current_idx]}")
+        for people in flow.counted:
+            print(people["direction"])
 
         print("Inside: ", len(flow.inside))
         print("Outside: ", len(flow.outside))
@@ -374,63 +413,3 @@ def main():
 
 
 main()
-
-
-    # def push_out(self, value):
-    #     for i in self.outside:
-    #         if(compareHistogram(i["croppedImage"], value["croppedImage"]) and compareVector(i["color"], value["color"]) and comparePosition(i["position"], value["position"])):
-    #             return False
-    #     self.outside.append(value)
-    #     return True
-
-
-    # if(abs(y2-y1) > 50):
-
-            #     inside_poly = np.array([
-            #         [6,20],
-            #         [407,21],
-            #         [450,275],
-            #         [97,568]
-            #     ], dtype=np.int32)
-                
-            #     outside_poly = np.array([
-            #         [227,555],
-            #         [549,176],
-            #         [800,232],
-            #         [823,571]
-            #     ], dtype=np.int32)
-
-            #     # debug_image = npBlank.copy()
-            #     # cv2.polylines(debug_image, [inside_poly], True, (0, 255, 0), 2)    # green = inside
-            #     # cv2.polylines(debug_image, [outside_poly], True, (0, 0, 255), 2)   # red = outsid
-            #     # cv2.imshow("I hate this", debug_image)
-            #     # cv2.waitKey(0)
-
-            #     if(inside_point(inside_poly, (intx1,inty1)) or inside_point(inside_poly, coordinate_point) or inside_point(inside_poly, (intx0,inty0))):
-            #         print("inside has been activated")
-            #         flow.push_in(
-            #             {"color":personVector, 
-            #             "croppedImage": removeBackground(cropImage),
-            #             "position":coordinate_point, 
-            #             "time": 0, 
-            #             "direction": None}
-            #         )
-            #     elif(inside_point(outside_poly, (intx1,inty1)) or inside_point(outside_poly, coordinate_point) or inside_point(outside_poly, (intx0,inty0))):
-            #         print("Outside has been activated")
-            #         flow.push_out(
-            #             {"color":personVector, 
-            #             "croppedImage": removeBackground(cropImage),
-            #             "position":coordinate_point, 
-            #             "time": 0, 
-            #             "direction": None}
-            #         )
-            # else:
-            #     print("I am not pushing this because it's way too small with a size of ", abs(y2-y1))
-                        #             {"color":personVector, 
-            #             "croppedImage": removeBackground(cropImage),
-            #             "position":coordinate_point, 
-            #             "time": 0, 
-            #             "direction": None}
-            # x = compareHistogram(i["croppedImage"], value["croppedImage"])
-            # hist_sim = 1.0 - min(1.0, x)
-            # color_sim = compareVector(i["color"], value["color"])
