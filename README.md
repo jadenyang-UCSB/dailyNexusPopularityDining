@@ -1,5 +1,5 @@
 # Daily Nexus Popularity Tracker
-  This script is designed to give you a good estimate of the amount of people that are in the Carillo at a given time. Near Capacity means 100+
+This script is designed to give you a good estimate of the amount of people that are in the Carillo at a given time. Near Capacity means 100+
 
 ## Libraries
 YOLO
