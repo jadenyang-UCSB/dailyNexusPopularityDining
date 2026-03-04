@@ -14,11 +14,12 @@ if not CARRILLO_URL:
     raise RuntimeError("CARRILLO_URL is missing. Put it in .env")
 
 
-# from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup
 import requests
 from selenium.webdriver.common.by import By
 from selenium import webdriver
 import time
+import json
 import numpy as np
 # from PIL import Image
 import kagglehub
@@ -45,19 +46,18 @@ logging.basicConfig(
 
 
 # Code from separate files
-import seleniumFuncs
+# import seleniumFuncs
 import scalar_utils
 
 import osnet
 
 class wrapper:
-    def __init__(self):
-        self.in_overflow = []
-        self.inside = []
-        self.out_overflow = []
-        self.outside = []
-        self.counted = []
-        self.best_score = 0
+    def __init__(self, in_over_flow = None, inside = None, out_over_flow = None, outside = None, count = None):
+        self.in_overflow = [] if in_over_flow is None else in_over_flow
+        self.inside = [] if inside is None else inside
+        self.out_overflow = [] if out_over_flow is None else out_over_flow
+        self.outside = [] if outside is None else outside
+        self.counted = [] if count is None else count
 
     def cos01(self,a,b):
         c = np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
@@ -96,7 +96,16 @@ class wrapper:
             entry["position"] = value["position"]
         else:
             self.counted.append(value)
-        
+
+    def json_dump(self, idx):
+        return{
+            "in_over":  self.in_overflow,
+            "inside" : self.inside, 
+            "out_over" : self.out_overflow,
+            "outside" :  self.outside, 
+            "count": self.counted,
+            "idx" : idx 
+        }        
 
 def hsv_hist(region):
     hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
@@ -178,179 +187,183 @@ def inside_point(poly, p):
 
 def main():
     # These variables are mainly for tracking
-    previous_frame = None
+    try:
+        previous_frame = os.getenv("PREVJPG")
+    except:
+        previous_frame = None
+
     MISSING_FRAMES_THRESHOLD = 3
     # This opens the google chrome
-    webChrome = webdriver.Chrome()
-    # webChrome.get(CARRILLO_URL)
+    html_text = requests.get(os.getenv("API_KEYDLG"))
 
-    #Important Paths:
-    pathtoBlank = os.getenv("BLANKJPG")
+    try:
+        html_text.raise_for_status()
+    except:
+        print("Image was not found")
+        return
     
+    pathtoBlank = os.getenv("BLANKJPG")
+
+    with open (pathtoBlank,"wb") as file:
+        file.write(html_text.content)
+
+    #in_over_flow = None, inside = None, out_over_flow = None, outside = None, count = None
+    with open(os.getenv("OUTPUT"), "r") as file:
+        data = json.load(file)
+    
+    in_over = data["in_over"]
+    inside = data["inside"]
+    out_over = data["out_over"]
+    outside = data["outside"]
+    count = data["count"]
+    current_idx = data["idx"]
+    #Important Paths:
+
     #AI Stuff
     model = YOLO("yolo11s.pt")
     
-    flow = wrapper()
+    flow = wrapper(in_over, inside, out_over, outside, count)
 
     messages = ["None", "Empty", "Quiet", "Moderate", "High", "Near Capacity"]
-    current_idx = 1
 
-    while True:
-        # color_vector_list = []
-        time.sleep(5)
-        seleniumFuncs.reload(webChrome)
-        
-        for calibrate in flow.counted:
-            calibrate["time"] += 1
+    for calibrate in flow.counted:
+        calibrate["time"] += 1
 
-        pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
-        originalPicture = pictureWeb.get_attribute("src")
+    # Coordinate finder
+    npBlank = cv2.imread(pathtoBlank)
+    #Ensures that it's a different picture each time
 
-        with open (pathtoBlank,"wb") as file:
-            file.write(requests.get(originalPicture).content)
-
-
-        # Coordinate finder
-        npBlank = cv2.imread(pathtoBlank)
-
-        #Ensures that it's a different picture each time
-        if(previous_frame is not None):
-            if(np.array_equal(previous_frame,npBlank)):
-                continue
-        previous_frame = npBlank.copy()
-        tracking = model(pathtoBlank)
+    if(previous_frame and previous_frame is not None):
+        if(np.array_equal(previous_frame,npBlank)):
+            return
     
-        #Detection stuff
-        for b in tracking[0].boxes:
-            
-            if int(b.cls.item()) != 0 or float(b.conf) < 0.25 or b.conf == None:
-                print(f"Skipping, {int(b.cls.item())} WITH A CONF OF {b.conf}")
-                continue
+    tracking = model(pathtoBlank)
 
-            coordinate_point = []
-            floats = b.xyxy[0].tolist()
-            x1, y1, x2, y2 = floats
-            width = x2 - x1
-            height = y2 - y1
-            area = width * height
-            
-            intx0,inty0,intx1,inty1 = map(int, floats)
-            middle_X = (x2 + x1)/2
-            middle_Y = (y2 + y1)/2
-            coordinate_point.append(middle_X)
-            coordinate_point.append(middle_Y) # base center point
-            image = cv2.imread(pathtoBlank)
-            
-            cv2.imwrite(os.getenv("COPYJPG"),image)
-            image = cv2.imread("./copy_image.jpg")
-            
-            cropImage = image[inty0:inty1,intx0:intx1]
-            personVector = osnet.osnet_vector(cropImage)
-
-            # Group handaling
-            GROUP_MIN_WIDTH = 120.0 
-            AVG_PERSON_WIDTH = 40.0 
-            MAX_GROUP_SIZE = 5 
-
-            if width >= GROUP_MIN_WIDTH:
-                print("This is a group")
-                est_group = max(1, int(round(width / AVG_PERSON_WIDTH)))
-                group_weight = min(est_group, MAX_GROUP_SIZE)
-            else:
-                group_weight = 1
-            
-            inside_poly = np.array([
-                [4,3],
-                [438,5],
-                [442,191],
-                [5,494]
-            ], dtype=np.int32)
-            
-            outside_poly = np.array([
-                [377,570],
-                [676,203],
-                [824,284],
-                [762,569]
-            ], dtype=np.int32)
-
-            # people inside or outside
-
-            pos = [middle_X, middle_Y]
-            base_value = {
-                "color": personVector,
-                "croppedImage": removeBackground(cropImage),
-                "position": pos,
-                "time": 0,
-                "weight": group_weight,
-            }
-
-            if (inside_point(inside_poly, (intx0,inty0))):
-                logging.info(f"We just initalized a person and we put them initally inside with a weight of {group_weight}")
-                v = base_value.copy()
-                v["direction"] = True
-                flow.push_value(v)
-            elif (inside_point(outside_poly, (intx1,inty1))):
-                logging.info(f"We just initalized a person and we put them initally outside with a weight of {group_weight}")
-                v = base_value.copy()
-                v["direction"] = False
-                flow.push_value(v)
-
-        flow_remove = []
-
-        for idx, timer in enumerate(flow.counted):
-            missed_frames = scalar_utils.to_int(timer["time"])
-            direction = scalar_utils.to_bool(timer["direction"])
-            weight = timer.get("weight", 1)
-            if missed_frames >= MISSING_FRAMES_THRESHOLD and direction:
-                # Last seen in outside_poly (entrance) → treat as entered dining hall
-                logging.info("Put it in flow.inside (entered)")
-                for _ in range(weight):
-                    flow.inside.append(timer)
-                flow_remove.append(idx)
-            elif missed_frames >= MISSING_FRAMES_THRESHOLD and not direction:
-                logging.info("Put in flow.outside (exited)")
-                for _ in range(weight):
-                    flow.outside.append(timer)
-                flow_remove.append(idx)
-            elif missed_frames >= MISSING_FRAMES_THRESHOLD:
-                flow_remove.append(idx)
+    #Detection stuff
+    for b in tracking[0].boxes:
+        if int(b.cls.item()) != 0 or float(b.conf) < 0.25 or b.conf == None:
+            print(f"Skipping, {int(b.cls.item())} WITH A CONF OF {b.conf}")
+            continue
+        coordinate_point = []
+        floats = b.xyxy[0].tolist()
+        x1, y1, x2, y2 = floats
+        width = x2 - x1
         
-        for item_remove in sorted(flow_remove, reverse=True):
-            del flow.counted[item_remove]
+        intx0,inty0,intx1,inty1 = map(int, floats)
+        middle_X = (x2 + x1)/2
+        middle_Y = (y2 + y1)/2
+        coordinate_point.append(middle_X)
+        coordinate_point.append(middle_Y) # base center point
+        image = cv2.imread(pathtoBlank)
         
-        # Tune thresholds so the status moves more often; each ~15–20 people shifts a level
-        INSIDE_STEP = 20
-        OUTSIDE_STEP = 20
-        if len(flow.inside) >= INSIDE_STEP:
-            if(len(flow.out_overflow) != 0):
-                flow.out_overflow.pop()
-            else:
-                current_idx += 1
-            flow.inside = []
-
-        if len(flow.outside) >= OUTSIDE_STEP:
-            if(len(flow.in_overflow) != 0):
-                flow.in_overflow.pop()
-            else:
-                current_idx -= 1
-            flow.outside = []
+        cv2.imwrite(os.getenv("COPYJPG"),image)
+        image = cv2.imread("./copy_image.jpg")
         
-        if(current_idx >= 5):
-            flow.in_overflow.append("over")
-            current_idx = 5
-        elif(current_idx <= 0):
-            flow.out_overflow.append("over")
-            current_idx = 1
+        cropImage = image[inty0:inty1,intx0:intx1]
+        personVector = osnet.osnet_vector(cropImage)
 
-        logging.info(f"Flow Inside {len(flow.inside)}. Flow Outside: {len(flow.outside)}. Current overall: {messages[current_idx]}")
-        for people in flow.counted:
-            print(people["direction"])
+        # Group handaling
+        GROUP_MIN_WIDTH = 120.0 
+        AVG_PERSON_WIDTH = 40.0 
+        MAX_GROUP_SIZE = 5 
+        if width >= GROUP_MIN_WIDTH:
+            est_group = max(1, int(round(width / AVG_PERSON_WIDTH)))
+            group_weight = min(est_group, MAX_GROUP_SIZE)
+        else:
+            group_weight = 1
+        
+        inside_poly = np.array([
+            [4,3],
+            [438,5],
+            [442,191],
+            [5,494]
+        ], dtype=np.int32)
+        
+        outside_poly = np.array([
+            [377,570],
+            [676,203],
+            [824,284],
+            [762,569]
+        ], dtype=np.int32)
 
-        print("Inside: ", len(flow.inside))
-        print("Outside: ", len(flow.outside))
-        print(messages[current_idx])
+        # people inside or outside
+        pos = [middle_X, middle_Y]
+        base_value = {
+            "color": personVector,
+            "croppedImage": removeBackground(cropImage),
+            "position": pos,
+            "time": 0,
+            "weight": group_weight,
+        }
+        if (inside_point(inside_poly, (intx0,inty0))):
+            logging.info(f"We just initalized a person and we put them initally inside with a weight of {group_weight}")
+            v = base_value.copy()
+            v["direction"] = True
+            flow.push_value(v)
+        elif (inside_point(outside_poly, (intx1,inty1))):
+            logging.info(f"We just initalized a person and we put them initally outside with a weight of {group_weight}")
+            v = base_value.copy()
+            v["direction"] = False
+            flow.push_value(v)
+    
+    flow_remove = []
+    for idx, timer in enumerate(flow.counted):
+        missed_frames = scalar_utils.to_int(timer["time"])
+        direction = scalar_utils.to_bool(timer["direction"])
+        weight = timer.get("weight", 1)
+        if missed_frames >= MISSING_FRAMES_THRESHOLD and direction:
+            # Last seen in outside_poly (entrance) → treat as entered dining hall
+            logging.info("Put it in flow.inside (entered)")
+            for _ in range(weight):
+                flow.inside.append(timer)
+            flow_remove.append(idx)
+        elif missed_frames >= MISSING_FRAMES_THRESHOLD and not direction:
+            logging.info("Put in flow.outside (exited)")
+            for _ in range(weight):
+                flow.outside.append(timer)
+            flow_remove.append(idx)
+        elif missed_frames >= MISSING_FRAMES_THRESHOLD:
+            flow_remove.append(idx)
+    
+    for item_remove in sorted(flow_remove, reverse=True):
+        del flow.counted[item_remove]
+    
+    # Tune thresholds so the status moves more often; each ~15–20 people shifts a level
+    INSIDE_STEP = 20
+    OUTSIDE_STEP = 20
 
-    webChrome.close()
+    if len(flow.inside) >= INSIDE_STEP:
+        if(len(flow.out_overflow) != 0):
+            flow.out_overflow.pop()
+        else:
+            current_idx += 1
+        flow.inside = []
+    if len(flow.outside) >= OUTSIDE_STEP:
+        if(len(flow.in_overflow) != 0):
+            flow.in_overflow.pop()
+        else:
+            current_idx -= 1
+        flow.outside = []
+    
+    if(current_idx >= 5):
+        flow.in_overflow.append("over")
+        current_idx = 5
+    elif(current_idx <= 0):
+        flow.out_overflow.append("over")
+        current_idx = 1
+    logging.info(f"Flow Inside {len(flow.inside)}. Flow Outside: {len(flow.outside)}. Current overall: {messages[current_idx]}")
+
+    # for people in flow.counted:
+    #     print(people["direction"])
+    cv2.imwrite(os.getenv("PREVJPG"),cv2.imread(os.getenv("BLANKJPG")))
+
+    with open(os.getenv("OUTPUT"), "w") as file:
+        json.dump(flow.json_dump(current_idx), file)
+    
+    print("Inside: ", len(flow.inside))
+    print("Outside: ", len(flow.outside))
+    print(messages[current_idx])
+
 
 
 if __name__ == "__main__":
