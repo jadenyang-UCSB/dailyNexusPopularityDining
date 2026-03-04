@@ -18,3 +18,5 @@ blank.jpeg
 
 # mac
 .DS_Store.env
+
+datasets/
