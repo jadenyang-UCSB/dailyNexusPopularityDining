@@ -45,11 +45,6 @@ logging.basicConfig(
 
 # Code from separate files
 import seleniumFuncs
-import kaggleFuncs
-import organizationData
-import dataprep
-import trainModel
-import resNet
 import scalar_utils
 
 import osnet
@@ -90,7 +85,7 @@ class wrapper:
         if score >= mean:
             print(score)
             print("In there")
-            logging.info("Already in there")
+            
             entry["color"] = value["color"]
             entry["croppedImage"] = value["croppedImage"]
             entry["time"] = 0
@@ -136,7 +131,6 @@ def process_crop(image):
 
 def compareHistogram(image_A, image_B):
     if(image_B.shape[0] < 40):
-        print("Shape is too small")
         return 1.0
 
     a = process_crop(image_A)
@@ -270,7 +264,7 @@ def main():
             image = cv2.imread(pathtoBlank)
             
             cv2.imwrite(os.getenv("COPYJPG"),image)
-            image = cv2.imread("./copy_image.jpg")
+            image = cv2.imread(os.getenv("COPYJPG"))
             
             cropImage = image[inty0:inty1,intx0:intx1]
             personVector = osnet.osnet_vector(cropImage)

@@ -18,3 +18,9 @@ blank.jpeg
 
 # mac
 .DS_Store.env
+
+kaggleFuncs.py
+organizationData.py
+dataprep.py
+trainModel.py
+resNet.py
