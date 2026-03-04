@@ -1255,3 +1255,6 @@
 2026-03-01 17:44:21,316 [INFO] Flow Inside 6. Flow Outside: 13. Current overall: Quiet
 2026-03-01 17:44:30,096 [INFO] Put in flow.outside (exited)
 2026-03-01 17:44:30,096 [INFO] Flow Inside 6. Flow Outside: 14. Current overall: Quiet
+2026-03-03 20:41:16,576 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty
+2026-03-03 20:41:24,116 [INFO] We just initalized a person and we put them initally outside with a weight of 1
+2026-03-03 20:41:24,311 [INFO] Flow Inside 0. Flow Outside: 0. Current overall: Empty

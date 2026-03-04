@@ -1,0 +1,1693 @@
+        # blur = filterApplication()
+        # blur = np.array(blur)
+        # blur = blur.astype(np.uint8)
+        # Image.fromarray(blur).save("convolve.jpeg")
+
+
+
+def filterApplication():
+    kernel = np.ones((3,3), dtype= np.float32)/9.0
+    img = Image.open("blank.jpeg").convert("RGB")
+
+    imageArray = np.array(img)
+    height = imageArray.shape[0]
+    width = imageArray.shape[1]
+
+    rgbCode = np.zeros((height - 50,width - 50,3),dtype= np.float32)
+
+
+    for rgb in range(3):
+        for i in range(height-50):
+            for j in range(width-50):
+                rgbCode[i,j,rgb] = np.sum(kernel * imageArray[i:i+3,j:j+3,rgb])
+    
+    return rgbCode
+
+
+
+
+            #Debugging
+            # cv2.rectangle(debugImage,(0,200),(800,800), color = (120,255,120),thickness = 1)
+            # print("Working?")
+            # cv2.imshow("rectangle Drawn", debugImage)
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
+
+            # print("This is the frames that they are missing for", value.get_missing_frame())
+            # print("This is the id", value.get_personID())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Important libraries
+import os
+import config
+import copy
+# from bs4 import BeautifulSoup
+import requests
+from selenium.webdriver.common.by import By
+from selenium import webdriver
+import time
+import numpy as np
+from PIL import Image
+import kagglehub
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import load_img, img_to_array
+from ultralytics import YOLO
+import cv2
+
+
+#Code from seperate files
+import seleniumFuncs
+import kaggleFuncs
+import organizationData
+import dataprep
+import trainModel
+# def testingkaggleAPI():
+#     path = kagglehub.dataset_download("fmena14/crowd-counting")
+#     return path
+
+class PersonObject:
+    def __init__(self,id,missingFrame,location):
+        self.personID = id
+        self.missingFrame: int = missingFrame
+        self.personLocation = location
+        self.timeObject = 0
+
+    def get_time_object(self):
+        return self.timeObject
+    def set_time_object(self):
+        self.timeObject = self.timeObject + 2
+    def set_time_zero(self):
+        self.timeObject = 0
+
+    def set_missing_frame(self):
+        self.missingFrame = self.missingFrame+1
+    def get_missing_frame(self):
+        return self.missingFrame
+    
+    def set_personID(self,number):
+        self.personID = number
+    def get_personID(self):
+        return self.personID
+    
+    def set_missing_location(self,frame):
+        self.personLocation = frame
+    def get_missing_Location(self):
+        return self.personLocation
+    
+    def set_frame_zero(self):
+        self.missingFrame = 0
+
+def main():
+    #These variables are mainly for tracking
+    number_people ={}
+    current_people = {}
+    people_line = []
+    people_remove = []
+    #This opens the google chrome
+    webChrome = webdriver.Chrome()
+    webChrome.get(config.API_KEYDLG)
+
+    #This organizes the data. I used kaggle to get my datas
+    if(os.path.exists("/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3")):
+        kaggle_data = "/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3"
+        csv_data = os.path.join(kaggle_data,"labels.csv")
+    else:
+        kaggle_data = kaggleFuncs.testingkaggleAPI()
+        csv_data = os.path.join(kaggle_data,"labels.csv")
+
+    #Organizes my data
+    dictData = organizationData.dictionaryData(csv_data)
+    array_pic, array_count = dataprep.resizeImage(dictData)
+
+    #Important Paths:
+    pathtoBlank = "./blank.jpeg"
+    
+    #Training
+    if os.path.exists("./peopleCounter.keras"):
+        people_counter_model = load_model("./peopleCounter.keras")
+        history = None
+    else:
+        people_counter_model,history = trainModel.train(array_pic,array_count)
+
+    #AI Stuff
+    model = YOLO("yolo11n.pt")
+
+    while True:
+        seleniumFuncs.reload(webChrome)
+        pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
+        originalPicture = pictureWeb.get_attribute("src")
+        with open (pathtoBlank,"wb") as file:
+            file.write(requests.get(originalPicture).content)
+
+        tracking = model.track(pathtoBlank, persist= True, tracker = "./tracker/botsort.yaml")
+
+        #Sanity Checker to ensure that the active number is counting
+        data_fitting = load_img(pathtoBlank, target_size = (128,128))
+        array_target = np.array(data_fitting)/255
+        fittedData = np.expand_dims(array_target,axis=0)
+        sanityCheck = people_counter_model.predict(fittedData)
+        print(sanityCheck)
+
+        #The thing here is like looking to see if there are anyone deleting like
+        for key,value in current_people.items():
+            value.set_missing_frame()
+            value.set_time_object()
+
+            if(value.get_missing_frame() == 5 and (value.get_missing_Location()[0] < 800) and (value.get_missing_Location()[0] > 0) and (value.get_missing_Location()[1] < 800) and ((value.get_missing_Location()[1] > 200))):
+                people_line.append(key)
+                value.set_time_zero()
+                number_people[key] = value
+            
+            if(value.get_time_object() >= 7200):
+                people_line.append(key)
+
+        for key,value in number_people.items():
+            value.set_time_object()
+
+            if(value.get_time_object() >= 7200):
+                people_remove.append(key)
+            
+        for key in set(people_line):
+            current_people.pop(key,None)
+        
+        for key in set(people_remove):
+            number_people.pop(key,None)
+
+        people_line = []
+        people_remove = []
+        
+
+        for b in tracking[0].boxes:
+            if(b.id == None):
+                continue
+            #Setting the coordinate plane
+            coordinate_point = []
+            x1, y1, x2, y2 = b.xyxy[0].tolist()
+            middle_X = (x2 + x1)/2
+            middle_Y = (y2 + y1)/2
+
+            # print(middle_X)
+            # print(middle_Y)
+
+            coordinate_point.append(middle_X)
+            coordinate_point.append(middle_Y)
+
+            debugImage = cv2.imread(pathtoBlank)
+            xValue = middle_X
+            yValue = middle_Y
+            practiceTuple = (int(xValue),int(yValue))
+
+            temporary_list = PersonObject(int(b.id.item()),0,coordinate_point)
+            # print("This is the temporary_list length", len(current_people))
+            # print("These are the classes: ", b.cls.item())
+            # print("These are the ids", (int(b.id.item())))
+            # print()
+
+            ROI = (middle_X < 800 and middle_X > 0) and ((middle_Y > 200 and middle_Y < 800))
+
+            if(b.cls.item() == 0.0 and (int(b.id.item()) not in current_people) and (ROI) and (b.conf > 0.5)):
+                print("Hey look I put someone inside the temporary thing", (b.id.item()))
+                current_people[int(b.id.item())] =  temporary_list
+
+            elif(b.cls.item() == 0.0 and (ROI) and (b.conf > 0.5) and ((int(b.id.item()) in current_people.keys()))):
+                    print("They are still inside the box which is crazy", b.id.item())
+                    current_people[int((b.id.item()))].set_missing_location([middle_X,middle_Y])
+                    current_people[int((b.id.item()))].set_frame_zero()
+                    
+            elif(b.cls.item() == 0.0 and not(ROI) and (float(b.conf) > 0.5) and (int(b.id.item()) in current_people)):
+                print("I just deleted something off of the temporary", b.id.item())
+                del current_people[int((b.id.item()))]
+            elif(b.cls.item() == 0.0 and not(ROI) and (float(b.conf) > 0.5) and (int(b.id.item()) in number_people)):
+                print("I just deleted someone off the inside",b.id.item())
+                del number_people[int((b.id.item()))]
+
+        print("This is the people inside", len(number_people))
+
+
+    webChrome.close()
+
+
+main()
+
+
+
+
+            # if(b.cls.item() == 0.0 and (int(b.id.item()) not in current_people) and (ROI) and (b.conf > 0.5)):
+            #     print("Hey look I put someone inside the temporary thing", (b.id.item()))
+            #     current_people[int(b.id.item())] =  temporary_list
+
+            # elif(b.cls.item() == 0.0 and (ROI) and (b.conf > 0.5) and ((int(b.id.item()) in current_people.keys()))):
+            #         print("They are still inside the box which is crazy", b.id.item())
+            #         current_people[int((b.id.item()))].set_missing_location([middle_X,middle_Y])
+            #         current_people[int((b.id.item()))].set_frame_zero()
+                    
+            # elif(b.cls.item() == 0.0 and not(ROI) and (float(b.conf) > 0.5) and (int(b.id.item()) in current_people)):
+            #     print("I just deleted something off of the temporary", b.id.item())
+            #     del current_people[int((b.id.item()))]
+            # elif(b.cls.item() == 0.0 and not(ROI) and (float(b.conf) > 0.5) and (int(b.id.item()) in number_people)):
+            #     print("I just deleted someone off the inside",b.id.item())
+            #     del number_people[int((b.id.item()))]
+
+
+
+
+
+
+
+            # if(b.cls.item() == 0.0 and (int(b.id.item()) not in current_people) and (ROI) and (b.conf > 0.5)):
+            #     print("Hey look I put someone inside the temporary thing", (b.id.item()))
+            #     current_people[int(b.id.item())] =  temporary_list
+
+            # elif(b.cls.item() == 0.0 and (ROI) and (b.conf > 0.5) and ((int(b.id.item()) in current_people.keys()))):
+            #         print("They are still inside the box which is crazy", b.id.item())
+            #         current_people[int((b.id.item()))].set_missing_location([middle_X,middle_Y])
+            #         current_people[int((b.id.item()))].set_frame_zero()
+                    
+            # elif(b.cls.item() == 0.0 and not(ROI) and (float(b.conf) > 0.5) and (int(b.id.item()) in current_people)):
+            #     print("I just deleted something off of the temporary", b.id.item())
+            #     del current_people[int((b.id.item()))]
+            # elif(b.cls.item() == 0.0 and not(ROI) and (float(b.conf) > 0.5) and (int(b.id.item()) in number_people)):
+            #     print("I just deleted someone off the inside",b.id.item())
+            #     del number_people[int((b.id.item()))]
+
+              #The thing here is like looking to see if there are anyone deleting like
+        # for key,value in current_people.items():
+        #     value.set_missing_frame()
+        #     value.set_time_object()
+
+        #     if(value.get_missing_frame() == 5 and (value.get_missing_Location()[0] < 800) and (value.get_missing_Location()[0] > 0) and (value.get_missing_Location()[1] < 800) and ((value.get_missing_Location()[1] > 200))):
+        #         people_line.append(key)
+        #         value.set_time_zero()
+        #         number_people[key] = value
+            
+        #     if(value.get_time_object() >= 7200):
+        #         people_line.append(key)
+
+        # for key,value in number_people.items():
+        #     value.set_time_object()
+
+        #     if(value.get_time_object() >= 7200):
+        #         people_remove.append(key)
+            
+        # for key in set(people_line):
+        #     current_people.pop(key,None)
+        
+        # for key in set(people_remove):
+        #     number_people.pop(key,None)
+
+
+
+#  class PersonObject:
+#     def __init__(self,id,missingFrame,location):
+#         self.personID = id
+#         self.missingFrame: int = missingFrame
+#         self.personLocation = location
+#         self.timeObject = 0
+
+#     def get_time_object(self):
+#         return self.timeObject
+#     def set_time_object(self):
+#         self.timeObject = self.timeObject + 2
+#     def set_time_zero(self):
+#         self.timeObject = 0
+
+#     def set_missing_frame(self):
+#         self.missingFrame = self.missingFrame+1
+#     def get_missing_frame(self):
+#         return self.missingFrame
+    
+#     def set_personID(self,number):
+#         self.personID = number
+#     def get_personID(self):
+#         return self.personID
+    
+#     def set_missing_location(self,frame):
+#         self.personLocation = frame
+#     def get_missing_Location(self):
+#         return self.personLocation
+    
+#     def set_frame_zero(self):
+#         self.missingFrame = 0
+
+
+
+
+
+
+
+
+            # cv2.rectangle(debugImage,(0,275),(900,580), color = (120,255,120),thickness = 1)
+            # # print("Working?")
+            # # cv2.imshow("rectangle Drawn", debugImage)
+            # # cv2.waitKey(1)
+            # # cv2.destroyAllWindows()
+
+
+            # cv2.rectangle(debugImage,(0,100),(900,275), color = (255,0,0),thickness = 1)
+            # # print("Working?")
+            # cv2.imshow("rectangle Drawn", debugImage)
+            # cv2.waitKey(1)
+            # cv2.destroyAllWindows()
+
+            # print(middle_X)
+            # print(middle_Y)
+
+
+
+#"./copy_image.jpg"
+# cv2.imshow("cropped",cropImage)
+# cv2.waitKey(5000)
+            
+            # xValue = middle_X
+            # yValue = middle_Y
+
+
+            # if(compare and id not in people_to_track.keys()):
+            #     objectPerson.set_personID(id)
+            #     objectPerson.set_color_vector(personVector)
+
+            # if(not compare):
+            #     if(b.cls.item() == 0.0 and (id not in people_to_track.keys()) and outside_ROI and (float(b.conf) > 0.5)):
+            #         print("Hey look I put someone outside RN", (id))
+            #         temporary_list = PersonObject(id,0,coordinate_point,False, personVector)
+            #         people_to_track[id] = temporary_list
+            #         id = id + 1
+
+            #     elif(b.cls.item() == 0.0 and (id not in people_to_track.keys())) and (inside_ROI) and (float(b.conf) > 0.5):
+            #         print("Hey I put someone inside box", id)
+            #         temporary_list = PersonObject(id,0,coordinate_point,True, personVector)
+            #         color_vector_list.append(personVector)
+            #         people_to_track[id] = temporary_list
+            #         id = id + 1
+                
+            # else:
+            #     if(b.cls.item() == 0.0 and (inside_ROI) and (id in people_to_track.keys()) and (float(b.conf) > 0.5)):
+            #             print("CHANGED THEIR STATUS TO TRUE")
+            #             person = people_to_track.get(id)
+            #             person.set_status(True)
+            #             person.set_missing_location([middle_X,middle_Y])
+
+            #     elif(b.cls.item() == 0.0 and outside_ROI and (id in people_to_track.keys()) and (float(b.conf) > 0.5)):
+            #             print("CHANGED THEIR STATUS TO FALSE")
+            #             person = people_to_track.get(id)
+            #             person.set_missing_location([middle_X,middle_Y])
+            #             person.set_status(False)
+            
+            # for keys,value in people_to_track.items():
+            #     value.set_time_object()
+                
+            #     if(value.get_time_object() >= 7200):
+            #         people_remove.append(keys)
+
+            #     if (keys not in people_line):
+            #         if(value.get_missing_frame() == missing_frame):
+            #             if(value.get_status() == True):
+            #                 number_people = number_people + 1
+            #                 people_remove.append(keys)
+            #             elif(value.get_status() == False):
+            #                 number_people = number_people - 1
+            #                 people_remove.append(keys)
+            #         else:
+            #             value.set_missing_frame()
+            #     if(keys in people_line):
+            #         value.set_frame_zero()
+            # self.personID = id
+    #     self.missingFrame: int = missingFrame
+    #     self.personLocation = location
+    #     self.timeObject = 0
+    #     self.inside_status = status
+    #     self.person_counted = False
+    #     self.color_vector = vector
+
+    # def get_time_object(self):
+    #     return self.timeObject
+    # def set_time_object(self):
+    #     self.timeObject = self.timeObject + 2
+    # def set_time_zero(self):
+    #     self.timeObject = 0
+
+    # def set_missing_frame(self):
+    #     self.missingFrame = self.missingFrame+1
+    # def get_missing_frame(self):
+    #     return self.missingFrame
+    
+    # def set_personID(self,number):
+    #     self.personID = number
+    # def get_personID(self):
+    #     return self.personID
+    
+    # def set_missing_location(self,frame):
+    #     self.personLocation = frame
+    # def get_missing_Location(self):
+    #     return self.personLocation
+    
+    # def set_frame_zero(self):
+    #     self.missingFrame = 0
+
+    # def get_status(self):
+    #     return self.inside_status
+    # def set_status(self, vari):
+    #     self.inside_status = vari
+
+    # def get_person_counted(self):
+    #     return self.person_counted
+    # def set_person_counted(self,vari):
+    #     self.person_counted = vari
+    
+    # def get_color_vector(self):
+    #     return self.color_vector
+    # def set_color_vector(self,vec):
+    
+
+
+
+
+print("This is the id", id)
+
+        print(insideStatus)
+        #You are now gonna iterate throughout the entire list of ids that should be updated. As of right now, prev is none and inside is something
+        for ids in listofID:
+            y = people_to_track[ids]["position"][1]
+            outside_ROI = (y > 100 and y < 275)
+            inside_ROI = (y >= 275 and y < 580)
+            if(inside_ROI == True and people_to_track[ids]["prevStatus"] == False):
+                number_people += 1
+                insideStatus[ids] = True
+                people_to_track[ids]["prevStatus"] = True
+                print("Status was changed to True")
+            elif (outside_ROI and people_to_track[ids]["prevStatus"] == True):
+                number_people -=1
+                insideStatus[ids] = False
+                people_to_track[ids]["prevStatus"] = False
+                print("Status was changed to False")
+            else:
+                continue
+
+
+
+
+# class PersonObject:
+#     def __init__(self,identity, colorVector, coordinate):
+#         self.ID = identity
+#         self.CV = colorVector
+#         self.point = coordinate
+
+#     def get_id(self):
+#         return self.ID
+#     def set_id(self,identity):
+#         self.ID = identity
+    
+#     def get_point(self):
+#         return self.point
+#     def set_point(self, coordinate):
+#         self.point = coordinate
+
+#     def get_CV(self):
+#         return self.CV
+#     def set_CV(self, vec):
+#         self.CV = vec
+                # y = people_to_track[ids]["position"][1]
+                # outside_ROI = (y > 100 and y < 275)
+                # inside_ROI = (y >= 275 and y < 580)
+
+
+
+
+                # y = cv["position"][1]
+                # outside_ROI = (y > 100 and y < 275)
+                # inside_ROI = (y >= 275 and y < 580)
+                
+                # if(outside_ROI):
+                #     cv["status"] = None
+                #     insideStatus[id] = False
+                
+                # elif(inside_ROI):
+                #     cv["status"] = None
+                #     insideStatus[id] = True
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Important libraries
+import os
+import config
+import copy
+# from bs4 import BeautifulSoup
+import requests
+from selenium.webdriver.common.by import By
+from selenium import webdriver
+import time
+import numpy as np
+from PIL import Image
+import kagglehub
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import load_img, img_to_array
+from ultralytics import YOLO
+import cv2
+import random
+
+#Code from seperate files
+import seleniumFuncs
+import kaggleFuncs
+import organizationData
+import dataprep
+import trainModel
+import resNet
+
+    
+def compareVector(vec_A, vec_B):
+    if(vec_B is None):
+        return False
+    
+    number = np.dot(vec_A,vec_B)
+    magA = np.linalg.norm(vec_A)
+    magB = np.linalg.norm(vec_B)
+    denom = magA * magB
+    if denom == 0:
+        print("This is always printing")
+        return False
+    overall = number/denom
+    # print(overall)
+    
+    if(overall >= 0.66):
+        return True
+    return False
+
+
+def comparePosition(pos_A, pos_B):
+    if(pos_B is None):
+        return False
+    distance = ((pos_A[0] - pos_B[0])**2 + (pos_A[1] - pos_B[1])**2)**0.5
+    
+    if(distance < 200):
+        return True, distance
+    return False, distance
+
+
+
+def main():
+    #These variables are mainly for tracking
+    previous_frame = None
+    id = 0
+    number_people = 0
+    people_remove = []
+    people_to_track = {}
+    color_vector_list = []
+    insideStatus = {}
+    previous_state = {}
+    listofID = set()
+
+    MISSINGFRAME = 3
+    #This opens the google chrome
+    webChrome = webdriver.Chrome()
+    webChrome.get(config.API_KEYCARRILLO)
+
+
+
+    #This organizes the data. I used kaggle to get my datas
+    if(os.path.exists("/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3")):
+        kaggle_data = "/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3"
+        csv_data = os.path.join(kaggle_data,"labels.csv")
+    else:
+        kaggle_data = kaggleFuncs.testingkaggleAPI()
+        csv_data = os.path.join(kaggle_data,"labels.csv")
+
+    #Organizes my data
+    dictData = organizationData.dictionaryData(csv_data)
+    array_pic, array_count = dataprep.resizeImage(dictData)
+
+    #Important Paths:
+    pathtoBlank = "./blank.jpeg"
+    
+    #Training
+    if os.path.exists("./peopleCounter.keras"):
+        people_counter_model = load_model("./peopleCounter.keras")
+        history = None
+    else:
+        people_counter_model,history = trainModel.train(array_pic,array_count)
+
+    #AI Stuff
+    model = YOLO("yolo11s.pt")
+
+    while True:
+        color_vector_list = []
+        conditionMet = []
+        conditionVector = []
+        listofID = set()
+        seleniumFuncs.reload(webChrome)
+        pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
+        originalPicture = pictureWeb.get_attribute("src")
+        with open (pathtoBlank,"wb") as file:
+            file.write(requests.get(originalPicture).content)
+
+        npBlank = cv2.imread(pathtoBlank)
+        #Ensures that it's a different picture each time
+        if(previous_frame is not None):
+            if(np.array_equal(previous_frame,npBlank)):
+                continue
+        previous_frame = npBlank.copy()
+
+
+
+        tracking = model(pathtoBlank)
+
+        #Sanity Checker to ensure that the active number is counting
+        data_fitting = load_img(pathtoBlank, target_size = (128,128))
+        array_target = np.array(data_fitting)/255
+        fittedData = np.expand_dims(array_target,axis=0)
+        sanityCheck = people_counter_model.predict(fittedData)
+        print(sanityCheck)
+      
+        people_remove = []
+        people_line = set()
+
+        #Detection stuff
+        for b in tracking[0].boxes:
+
+            if b.cls.item() != 0:
+                continue
+
+            #Setting the coordinate plane
+            coordinate_point = []
+            floats = b.xyxy[0].tolist()
+            x1, y1, x2, y2 = floats
+            
+            intx0,inty0,intx1,inty1 = map(int, floats)
+
+            middle_X = (x2 + x1)/2
+            middle_Y = (y2 + y1)/2
+
+            coordinate_point.append(middle_X)
+            coordinate_point.append(middle_Y) #YOU HAVE COORDINATE POINT
+
+            image = cv2.imread(pathtoBlank)
+            
+            cv2.imwrite("./copy_image.jpg",image)
+
+            image = cv2.imread("./copy_image.jpg")
+            
+            cropImage = image[inty0:inty1,intx0:intx1]
+
+            personVector = resNet.colorVector(cropImage) #YOU HAVE THE COLOR VECTOR OF THE PERSON
+
+            if(b.cls.item() == 0 and float(b.conf) > 0.5):
+                color_vector_list.append(
+                    {"color":personVector, 
+                     "position":coordinate_point, 
+                     "time": 0, 
+                     "direction": None}
+                    )
+
+    #You look through all the people that are like inside the color vector or the picture with the cv
+        for cv in color_vector_list:
+            found = False #You first have to see if found is false
+            for k,v in people_to_track.items(): #Through the k,v stuff in the people_to_track items you are looking to see if the color vector is already inside of the  people_track
+                if compareVector(cv["color"], v["color"]):
+                   conditionMet.append(k)
+                
+            for keys in conditionMet:
+                value, position = comparePosition(cv["position"],people_to_track.get(keys)["position"])
+                if (value):
+                    conditionVector.append({"k": keys, "b": position})
+
+            if(conditionVector):
+                best = min(conditionVector, key=lambda d: d["b"])  # pick entry with biggest b
+                max_key = best["k"]
+                found = True                                # get the key (id)
+
+            if found == True:
+                if(cv["position"][1] - people_to_track[max_key]["position"][1] < -50):
+                    people_to_track[max_key]["direction"] = False
+                elif (cv["position"][1] - people_to_track[max_key]["position"][1] > 50):
+                    people_to_track[max_key]["direction"] = True
+                people_to_track[max_key]["color"] = cv["color"]
+                people_to_track[max_key]["position"] = cv["position"]
+                people_to_track[max_key]["time"] = cv["time"]
+                listofID.add(k)
+
+                #If it isn't there then (problem) you set the previous to false and the insidestatus based off of what you see. I think changing to none is the play
+            if found == False:
+                print("added", id)
+                people_to_track[id] = cv
+                listofID.add(id)
+                id += 1
+            
+               
+        print(people_to_track)
+            
+        # print(people_to_track)
+        for keys, values in people_to_track.items():
+            if keys in listofID:
+                values["time"] = 0
+            else:
+
+                values["time"] += 1
+            if (values["time"] >= MISSINGFRAME):
+                people_remove.append(keys)
+        
+            # compare = compareVector(personVector,people_to_track.values()) # YOU ALSO HAVE IF THAT PERSON IS LIKE ALREADY ACCOUNTED FOR
+            
+        for keys in people_remove:
+            if(people_to_track[keys]["time"] < 30):
+                if(people_to_track[keys]["direction"] == True):
+                    number_people += 1
+                elif(people_to_track[keys]["direction"] == False):
+                    number_people -= 1
+            insideStatus.pop(keys,None)
+            people_to_track.pop(keys,None)
+
+        print("This is the people inside", number_people)
+
+
+    webChrome.close()
+
+
+main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cropImage = image[inty0:inty1,intx0:intx1]
+
+            personVector = resNet.colorVector(cropImage) #YOU HAVE THE COLOR VECTOR OF THE PERSON
+
+            if(b.cls.item() == 0 and float(b.conf) > 0.5):
+                color_vector_list.append(
+                    {"color":personVector, 
+                     "position":coordinate_point, 
+                     "time": 0, 
+                     "direction": None}
+                    )
+
+    #You look through all the people that are like inside the color vector or the picture with the cv
+        for cv in color_vector_list:
+            found = False #You first have to see if found is false
+            for k,v in people_to_track.items(): #Through the k,v stuff in the people_to_track items you are looking to see if the color vector is already inside of the  people_track
+                if compareVector(cv["color"], v["color"]):
+                   conditionMet.append(k)
+                
+            for keys in conditionMet:
+                value, position = comparePosition(cv["position"],people_to_track.get(keys)["position"])
+                if (value):
+                    conditionVector.append({"k": keys, "b": position})
+
+            if(conditionVector):
+                best = min(conditionVector, key=lambda d: d["b"])  # pick entry with biggest b
+                max_key = best["k"]
+                found = True                                # get the key (id)
+
+            if found == True:
+                if(cv["position"][1] - people_to_track[max_key]["position"][1] < -50):
+                    people_to_track[max_key]["direction"] = False
+                elif (cv["position"][1] - people_to_track[max_key]["position"][1] > 50):
+                    people_to_track[max_key]["direction"] = True
+                people_to_track[max_key]["color"] = cv["color"]
+                people_to_track[max_key]["position"] = cv["position"]
+                people_to_track[max_key]["time"] = cv["time"]
+                listofID.add(k)
+
+                #If it isn't there then (problem) you set the previous to false and the insidestatus based off of what you see. I think changing to none is the play
+            if found == False:
+                print("added", id)
+                people_to_track[id] = cv
+                listofID.add(id)
+                id += 1
+            
+               
+        print(people_to_track)
+            
+        # print(people_to_track)
+        for keys, values in people_to_track.items():
+            if keys in listofID:
+                values["time"] = 0
+            else:
+
+                values["time"] += 1
+            if (values["time"] >= MISSINGFRAME):
+                people_remove.append(keys)
+        
+            # compare = compareVector(personVector,people_to_track.values()) # YOU ALSO HAVE IF THAT PERSON IS LIKE ALREADY ACCOUNTED FOR
+            
+        for keys in people_remove:
+            if(people_to_track[keys]["time"] < 30):
+                if(people_to_track[keys]["direction"] == True):
+                    number_people += 1
+                elif(people_to_track[keys]["direction"] == False):
+                    number_people -= 1
+            insideStatus.pop(keys,None)
+            people_to_track.pop(keys,None)
+
+
+
+
+
+
+
+    # id = 0
+    # rotate_angle = 51
+    # number_people = 0
+    # people_remove = []
+    # people_to_track = {}
+    # color_vector_list = []
+    # insideStatus = {}
+    # previous_state = {}
+    # listofID = set()
+
+            #YOU HAVE COORDINATE POINT
+        # # cv2.rectangle(image,(500,600),(1020, 600),(0,255,0),1)
+        # # cv2.rectangle(image,(0,250),(500, 580),(0,255,0),1)
+        # rotateLeft = cv2.RotatedRect((250,415),(300,600),rotate_angle)
+        # rotateLeftPoints = cv2.boxPoints(rotateLeft)
+        # intPoints = np.intp(rotateLeftPoints)
+        # cv2.drawContours(image, [intPoints], 0, (0, 255, 0), 2)
+
+        # cv2.rectangle(image, (500,500),(300,300),(255,0,0),3)
+        # cv2.waitKey(0)
+        # cv2.imshow("Rectangles",image)
+        # cv2.destroyAllWindows()
+
+        #Detection stuff
+
+            # left_poly = [(366,106),(594,223),(7,497),(268,570)]
+    # left_poly_np = np.array(left_poly,dtype=np.int32)
+    # right_poly = [(876,233),(858,566),(381,572),(637,214)]
+    # right_poly_np = np.array(right_poly,dtype=np.int32)
+            # while True:
+        #     cv2.imshow("point", npBlank)
+        #     cv2.setMouseCallback('point', mouse_click)
+        #     if cv2.waitKey(1) & 0xFF == ord('q'):
+#         #         break
+# def mouse_click(event, x, y, flags, params):
+#     if event == cv2.EVENT_LBUTTONDOWN:
+#         print(f"This is x: {x}. This is y: {y}")
+
+
+
+
+
+
+        # for number in range(len(previous_arr)):
+        #     if number not in row_cost:
+        #         gone_arr.append(number)
+
+        # for row,col in zip(row_cost,col_cost):
+        #     if(costMatrix[row][col] > 0.8):
+        #         gone_arr.append(row)
+        
+        # for delete in gone_arr:
+        #     if(previous_arr[delete]["missing"] == 3):
+        #         direction = previous_arr[delete]["pos"][1] - previous_arr[delete]["previousPos"][1]
+        #         if(direction < 0):
+        #             totalNumber = totalNumber + 1
+        #             print("Added one")
+        #         else:
+        #             totalNumber = totalNumber - 1
+        #             print("Subtracted One")
+
+
+
+
+
+
+coordinate_point = []
+            floats = b.xyxy[0].tolist()
+            x1, y1, x2, y2 = floats
+            
+            intx0,inty0,intx1,inty1 = map(int, floats)
+            middle_X = (x2 + x1)/2
+            middle_Y = (y2 + y1)/2
+            coordinate_point.append(middle_X)
+            coordinate_point.append(middle_Y)
+            croppedImage = image[inty0:inty1,intx0:intx1]
+            hist = calculateCost((intx0,inty0,intx1,inty1),croppedImage)
+            current_arr.append(hist)
+
+        if len(previous_arr) == 0:
+            for new_object in current_arr:
+                new_object["id"] = id_num
+                id_num += 1
+
+            previous_arr = current_arr
+
+            continue
+        
+        costMatrix = np.zeros((len(previous_arr),len(current_arr)),dtype= np.float32)
+
+        for i, prev_obj in enumerate(previous_arr):
+            for j, curr_obj in enumerate(current_arr):
+                upper = cv2.compareHist(prev_obj["upper"],curr_obj["upper"],cv2.HISTCMP_BHATTACHARYYA)
+                lower = cv2.compareHist(prev_obj["lower"], curr_obj["lower"],cv2.HISTCMP_BHATTACHARYYA)
+                distance = np.array(prev_obj["pos"],dtype=np.float32) - np.array(curr_obj["pos"],dtype=np.float32)
+                total_distance = np.linalg.norm(distance) / 500
+                normal_distance = min(total_distance,1.0)
+                totalCost = (upper*0.45) + (lower*0.45) + (normal_distance * 0.1)
+                costMatrix[i][j] = totalCost
+
+
+        
+        row_cost, col_cost = linear_sum_assignment(costMatrix)
+
+        matched_pairs = []
+        matched_prev = []
+        matched_curr = []
+        removed = set()
+        final_removed = []
+
+        for prev_index,new_index in zip(row_cost,col_cost):
+            pid = previous_arr[prev_index]["id"]
+            if (costMatrix[prev_index][new_index] < 0.6):
+                matched_prev.append(pid)
+                matched_curr.append(current_arr[new_index]["id"])
+                matched_pairs.append((prev_index,new_index,pid))
+
+        dupe_entry = []
+
+        for pairs in matched_pairs:
+            old = pairs[0]
+            new = pairs[1]
+            pid = pairs[2]
+            current_arr[new]["id"] = pid
+            dupe_entry.append(pid)
+            current_arr[new]["previousPos"] = previous_arr[old]["pos"]
+            current_arr[new]["missing"] = 0
+
+        for prev_object in previous_arr:
+            pid = prev_object["id"]
+            if pid not in matched_prev:
+                prev_object["missing"] += 1
+                if(prev_object["missing"] >= MISSINGFRAME):
+                    removed.add(pid)
+                    print("This is the previousPose", prev_object["previousPos"][1])
+                    print("This is the position", prev_object["pos"][1])
+                    if(prev_object["previousPos"][1] - prev_object["pos"][1]) > 0:
+                        print("I added a number")
+                        total_number += 1
+                    else:
+                        print("I subtracted one")
+                        total_number -= 1
+            elif pid in dupe_entry:
+                removed.add(pid)
+        
+
+
+        for j, curr_object in enumerate(current_arr):
+            if j not in matched_curr:
+                curr_object["id"] = id_num
+                id_num += 1
+
+        for previous in previous_arr:
+            if(previous["id"] not in dupe_entry or previous["id"] not in removed):
+                final_removed.append(previous)
+        
+        for current in current_arr:
+            final_removed.append(current)
+
+        previous_arr = final_removed
+        print(total_number)
+
+    webChrome.close()
+
+
+
+            # for p in vector_inside:
+            #     if compareVector(p, personVector):
+            #         continue
+# def fingerPrint(point, crop_upper,crop_lower):
+#     x1,y1,x2,y2 = point
+#     hsv = cv2.cvtColor(crop_upper,cv2.COLOR_BGR2HSV)
+#     mask = cv2.inRange(hsv[:,:,1], 50, 255)
+#     upper_hist = cv2.calcHist([hsv],[0,1],mask,[180,64], [0,180, 0,256])
+#     cv2.normalize(upper_hist, upper_hist, 0, 1, cv2.NORM_MINMAX)
+
+#     hsv = cv2.cvtColor(crop_lower,cv2.COLOR_BGR2HSV)
+#     mask = cv2.inRange(hsv[:,:,1], 50, 255)
+#     lower_hist = cv2.calcHist([hsv],[0,1],mask,[180,64], [0,180, 0,256])
+#     cv2.normalize(lower_hist, lower_hist, 0, 1, cv2.NORM_MINMAX)
+
+#     return {
+#     "upper": upper_hist,
+#     "lower": lower_hist,
+#     "height": (y2-y1)/2,
+#     "pos": ((x2+x1)/2,y2),
+#     "missing": 0,
+#     "previousPos": ((x2+x1)/2,y2),
+#     "id": None
+#     }
+
+# def calculateCost(point,crop):
+#     height = crop.shape[0]
+#     fp = fingerPrint(point,crop[height//2:,:],crop[:height//2,:])
+#     return fp
+
+
+#    while True:
+
+#         entering_interval = []
+#         exiting_interval = []
+
+#         vector_inside = []
+
+#         enter_people = 0
+#         exit_people = 0
+
+#         overall = 0
+#         seleniumFuncs.reload(webChrome)
+#         pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
+#         originalPicture = pictureWeb.get_attribute("src")
+#         with open (pathtoBlank,"wb") as file:
+#             file.write(requests.get(originalPicture).content)
+
+#         npBlank = cv2.imread(pathtoBlank)
+#         cv2.destroyAllWindows()
+
+#         #Ensures that it's a different picture each time
+#         if(previous_frame is not None):
+#             if(np.array_equal(previous_frame,npBlank)):
+#                 continue
+#         previous_frame = npBlank.copy()
+
+#         tracking = model(pathtoBlank)
+
+#         #Sanity Checker to ensure that the active number is counting
+#         data_fitting = load_img(pathtoBlank, target_size = (128,128))
+#         array_target = np.array(data_fitting)/255
+#         fittedData = np.expand_dims(array_target,axis=0)
+#         sanityCheck = people_counter_model.predict(fittedData)
+#         print(sanityCheck)
+
+
+#         image = cv2.imread(pathtoBlank)
+
+# def inside_point(poly, p):
+#     return cv2.pointPolygonTest(poly,p,False) >= 0
+
+        # cv2.imshow("Image",npBlank)
+        # cv2.setMouseCallback("Image", click_event)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows
+
+
+
+
+                # debug_image = npBlank.copy()
+
+                # cv2.polylines(debug_image, [inside_poly], True, (0, 255, 0), 2)    # green = inside
+                # cv2.polylines(debug_image, [outside_poly], True, (0, 0, 255), 2)   # red = outsid
+                # cv2.imshow("I hate this", debug_image)
+                # cv2.waitKey(0)
+
+
+                # outside_poly = {(739,237),(472,565),(825,265),(768,571)}
+                # inside_poly = {(4,274),(4,563),(570,161),(592,371)}
+
+                            # else:
+            #     print("It's fine let's continue", float(b.conf))
+            #Setting the coordinate plane
+
+
+                # total_number = 0
+    # id_num = 0
+    
+
+
+    # def push_out(self, value):
+    #     for i in self.outside:
+    #         if(compareHistogram(i["croppedImage"], value["croppedImage"]) and compareVector(i["color"], value["color"]) and comparePosition(i["position"], value["position"])):
+    #             return False
+    #     self.outside.append(value)
+    #     return True
+
+
+    # if(abs(y2-y1) > 50):
+
+            #     inside_poly = np.array([
+            #         [6,20],
+            #         [407,21],
+            #         [450,275],
+            #         [97,568]
+            #     ], dtype=np.int32)
+                
+            #     outside_poly = np.array([
+            #         [227,555],
+            #         [549,176],
+            #         [800,232],
+            #         [823,571]
+            #     ], dtype=np.int32)
+
+            #     # debug_image = npBlank.copy()
+            #     # cv2.polylines(debug_image, [inside_poly], True, (0, 255, 0), 2)    # green = inside
+            #     # cv2.polylines(debug_image, [outside_poly], True, (0, 0, 255), 2)   # red = outsid
+            #     # cv2.imshow("I hate this", debug_image)
+            #     # cv2.waitKey(0)
+
+            #     if(inside_point(inside_poly, (intx1,inty1)) or inside_point(inside_poly, coordinate_point) or inside_point(inside_poly, (intx0,inty0))):
+            #         print("inside has been activated")
+            #         flow.push_in(
+            #             {"color":personVector, 
+            #             "croppedImage": removeBackground(cropImage),
+            #             "position":coordinate_point, 
+            #             "time": 0, 
+            #             "direction": None}
+            #         )
+            #     elif(inside_point(outside_poly, (intx1,inty1)) or inside_point(outside_poly, coordinate_point) or inside_point(outside_poly, (intx0,inty0))):
+            #         print("Outside has been activated")
+            #         flow.push_out(
+            #             {"color":personVector, 
+            #             "croppedImage": removeBackground(cropImage),
+            #             "position":coordinate_point, 
+            #             "time": 0, 
+            #             "direction": None}
+            #         )
+            # else:
+            #     print("I am not pushing this because it's way too small with a size of ", abs(y2-y1))
+                        #             {"color":personVector, 
+            #             "croppedImage": removeBackground(cropImage),
+            #             "position":coordinate_point, 
+            #             "time": 0, 
+            #             "direction": None}
+            # x = compareHistogram(i["croppedImage"], value["croppedImage"])
+            # hist_sim = 1.0 - min(1.0, x)
+            # color_sim = compareVector(i["color"], value["color"])
+            # Re-ID feature extractor: "osnet" (person Re-ID model) or "resnet" (generic CNN)
+
+# USE_OSNET = True  # set False to use resNet.colorVector() instead
+# if USE_OSNET:
+#     import osnet
+#     def _reid_vector(crop_bgr):
+#         return osnet.osnet_vector(crop_bgr)
+# else:
+#     def _reid_vector(crop_bgr):
+#         return resNet.colorVector(crop_bgr)
+                # Last seen in inside_poly (dining) → treat as exited
+                            # For debugging zone shapes, uncomment below.
+            # debug_image = npBlank.copy()
+            # cv2.polylines(debug_image, [inside_poly], True, (0, 255, 0), 2)    # green = inside
+            # cv2.polylines(debug_image, [outside_poly], True, (0, 0, 255), 2)   # red = outside
+            # cv2.imshow("Zones", debug_image)
+            # cv2.waitKey(0)
+                    # assert img is not None, "file could not be read, check with os.path.exists()"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+UPDATES AND WHAT I WANT Added
+    # Frames without re-ID before we count person as entered/exited (each frame = 5 sec image).
+    # Lower = faster counting but more sensitive to missed detections. 3 = 15 sec.
+
+
+     # #This organizes the data. I used kaggle to get my datas
+    # if(os.path.exists("/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3")):
+    #     kaggle_data = "/Users/jadenyang/.cache/kagglehub/datasets/fmena14/crowd-counting/versions/3"
+    #     csv_data = os.path.join(kaggle_data,"labels.csv")
+    # else:
+    #     kaggle_data = kaggleFuncs.testingkaggleAPI()
+    #     csv_data = os.path.join(kaggle_data,"labels.csv")
+
+    # #Organizes my data
+    # dictData = organizationData.dictionaryData(csv_data)
+    # array_pic, array_count = dataprep.resizeImage(dictData)
+
+
+
+        #Training
+    # if os.path.exists("./peopleCounter.keras"):
+    #     people_counter_model = load_model("./peopleCounter.keras")
+    #     history = None
+    # else:
+    #     people_counter_model,history = trainModel.train(array_pic,array_count)
+
+
+                # cv2.imshow("Pic One", value["croppedImage"])
+            # cv2.waitKey(0)
+            # cv2.imshow("Pic Two", entry["croppedImage"])
+            # cv2.waitKey(0)
+            #Important libraries
+import os
+import config
+import copy
+
+#API Key Handle
+from dotenv import load_dotenv
+
+
+load_dotenv()
+CARRILLO_URL = os.getenv("API_KEYCARRILLO")
+
+if not CARRILLO_URL:
+    raise RuntimeError("CARRILLO_URL is missing. Put it in .env")
+
+
+# from bs4 import BeautifulSoup
+import requests
+from selenium.webdriver.common.by import By
+from selenium import webdriver
+import time
+import numpy as np
+# from PIL import Image
+import kagglehub
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import load_img, img_to_array
+from ultralytics import YOLO
+import cv2
+import random
+# from scipy.optimize import linear_sum_assignment
+import heapq
+
+import numpy as np
+from matplotlib import pyplot as plts
+
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("app.log", mode="a"),  # append
+        logging.StreamHandler()                    # console
+    ]
+)
+
+
+# Code from separate files
+import seleniumFuncs
+import kaggleFuncs
+import organizationData
+import dataprep
+import trainModel
+import resNet
+import scalar_utils
+
+import osnet
+
+class wrapper:
+    def __init__(self):
+        self.in_overflow = []
+        self.inside = []
+        self.out_overflow = []
+        self.outside = []
+        self.counted = []
+        self.best_score = 0
+
+    def cos01(self,a,b):
+        c = np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
+        return (c + 1) / 2
+
+    def push_value(self, value):
+        # Default weight = 1 person unless specified (for wide/group boxes)
+        if "weight" not in value:
+            value["weight"] = 1
+        # Re-ID match threshold (0–1). Slightly lower = more matches, more risk of merging two people.
+        mean = 0.95
+        pq = []
+        # Weights tuned for 5-sec intervals: rely more on appearance (hist+ResNet), less on position.
+        for i in self.counted:
+            pos_sim = comparePosition(i["position"], value["position"])
+            score = 0.85 * self.cos01(i["color"], value["color"]) + pos_sim * 0.15
+            pq.append((score, i))
+        
+        if not pq:
+            self.counted.append(value)
+            return
+        
+        score, entry = max(pq, key=lambda t: t[0])
+        
+
+        if score >= mean:
+            print(score)
+            print("In there")
+            logging.info("Already in there")
+            entry["color"] = value["color"]
+            entry["croppedImage"] = value["croppedImage"]
+            entry["time"] = 0
+            # Keep the larger weight if we ever see this person as part of a wide/group box
+            entry["weight"] = max(entry.get("weight", 1), value.get("weight", 1))
+            # Use current zone (inside/outside polygon) for direction, not position delta.
+            # direction True = in inside_poly, False = in outside_poly.
+            entry["direction"] = value["direction"]
+            entry["position"] = value["position"]
+        else:
+            print("New person, adding into the counted array")
+            self.counted.append(value)
+        
+
+def hsv_hist(region):
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv[:, :, 1], 15, 255)
+    hist = cv2.calcHist([hsv], [0, 1], mask, [36, 32], [0, 180, 0, 256])
+    cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+    return hist.flatten()
+
+def removeBackground(img):
+    mask = np.zeros(img.shape[:2],np.uint8)
+    bgdModel = np.zeros((1,65),np.float64)
+    fgdModel = np.zeros((1,65),np.float64)
+
+
+    h, w = img.shape[:2]
+    rect = (1, 1, w, h)  
+
+    cv2.grabCut(img,mask,rect,bgdModel,fgdModel,5,cv2.GC_INIT_WITH_RECT)
+    mask2 = np.where((mask==2)|(mask==0),0,1).astype('uint8')
+    img = img*mask2[:,:,np.newaxis]
+    return img
+
+def process_crop(image):
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    
+    clahe = cv2.createCLAHE(clipLimit= 2.0, tileGridSize=(4,4))
+    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+    cv2.imshow("ColorThing", cv2.cvtColor(lab, cv2.COLOR_Lab2BGR))
+    cv2.waitKey(1) 
+    
+    return cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
+
+def compareHistogram(image_A, image_B):
+    if(image_B.shape[0] < 40):
+        print("Shape is too small")
+        return 1.0
+
+    a = process_crop(image_A)
+    b = process_crop(image_B)
+
+    height_a = a.shape[0]
+    height_b = b.shape[0]
+    mid_a = height_a//2
+    mid_b = height_b//2
+
+    upperA = image_A[:mid_a, :]
+    lowerA = image_A[mid_a : , :]
+
+    upperB = image_B[:mid_b, :]
+    lowerB = image_B[mid_b : , :]
+
+    upperHist = cv2.compareHist(hsv_hist(upperA), hsv_hist(upperB), cv2.HISTCMP_BHATTACHARYYA)
+    # print(upperHist)
+    lowerHist = cv2.compareHist(hsv_hist(lowerA), hsv_hist(lowerB), cv2.HISTCMP_BHATTACHARYYA)
+    # print(lowerHist)
+    return upperHist * 0.5 + lowerHist * 0.5
+
+def compareVector(vec_A, vec_B):
+    if(vec_B is None):
+        return False
+    
+    number = np.dot(vec_A,vec_B)
+    magA = np.linalg.norm(vec_A)
+    magB = np.linalg.norm(vec_B)
+    denom = magA * magB
+    if denom == 0:
+        return 0.0
+    overall = number/denom
+    # print(overall)
+    
+    # if(overall >= 0.66):
+    #     return overall
+    return overall
+
+def comparePosition(pos_A, pos_B):
+    if(pos_B is None):
+        return 1.0
+    distance = ((pos_A[0] - pos_B[0])**2 + (pos_A[1] - pos_B[1])**2)**0.5
+    # Use 450px tolerance: with a frame every 5 sec, people can move a lot between frames.
+    return max(0.0, 1.0 - distance / 450.0)
+
+def click_event(event, x, y, flags, param):
+    if(event == cv2.EVENT_LBUTTONDOWN):
+        print(f"This is x: {x}. This is y: {y}.")
+
+def inside_point(poly, p):
+    return cv2.pointPolygonTest(poly,p,False) >= 0
+
+def main():
+    # These variables are mainly for tracking
+    previous_frame = None
+    MISSING_FRAMES_THRESHOLD = 3
+    # This opens the google chrome
+    webChrome = webdriver.Chrome()
+    webChrome.get(CARRILLO_URL)
+
+    #Important Paths:
+    pathtoBlank = os.getenv("BLANKJPG")
+    
+    #AI Stuff
+    model = YOLO("yolo11s.pt")
+    
+    flow = wrapper()
+
+    messages = ["None", "Empty", "Quiet", "Moderate", "High", "Near Capacity"]
+    current_idx = 1
+    
+    while True:
+        # color_vector_list = []
+        time.sleep(5)
+        seleniumFuncs.reload(webChrome)
+        
+        for calibrate in flow.counted:
+            calibrate["time"] += 1
+
+        pictureWeb = webChrome.find_element(By.XPATH, "/html/body/img")
+        originalPicture = pictureWeb.get_attribute("src")
+
+        with open (pathtoBlank,"wb") as file:
+            file.write(requests.get(originalPicture).content)
+
+
+        # Coordinate finder
+        npBlank = cv2.imread(pathtoBlank)
+
+        # cv2.imshow("Image",npBlank)
+        # cv2.setMouseCallback("Image", click_event)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows
+
+        #Ensures that it's a different picture each time
+        if(previous_frame is not None):
+            if(np.array_equal(previous_frame,npBlank)):
+                continue
+        previous_frame = npBlank.copy()
+        tracking = model(pathtoBlank)
+
+        #Sanity Checker to ensure that the active number is counting
+            #Coming very soon and next feature I hope to implement
+
+        # data_fitting = load_img(pathtoBlank, target_size = (128,128))
+        # array_target = np.array(data_fitting)/255
+        # fittedData = np.expand_dims(array_target,axis=0)
+        # sanityCheck = people_counter_model.predict(fittedData)
+        # print(sanityCheck)
+    
+        #Detection stuff
+        for b in tracking[0].boxes:
+            
+            if int(b.cls.item()) != 0 or float(b.conf) < 0.25 or b.conf == None:
+                print(f"Skipping, {int(b.cls.item())} WITH A CONF OF {b.conf}")
+                continue
+
+            coordinate_point = []
+            floats = b.xyxy[0].tolist()
+            x1, y1, x2, y2 = floats
+            width = x2 - x1
+            height = y2 - y1
+            area = width * height
+            
+            intx0,inty0,intx1,inty1 = map(int, floats)
+            middle_X = (x2 + x1)/2
+            middle_Y = (y2 + y1)/2
+            coordinate_point.append(middle_X)
+            coordinate_point.append(middle_Y) # base center point
+            image = cv2.imread(pathtoBlank)
+            
+            cv2.imwrite(os.getenv("COPYJPG"),image)
+            image = cv2.imread("./copy_image.jpg")
+            
+            cropImage = image[inty0:inty1,intx0:intx1]
+            personVector = osnet.osnet_vector(cropImage)
+
+            # --- Simple group handling (weight, not duplicate tracks) ---
+            # If a bounding box is very wide, treat it as a group and give this track a
+            # \"weight\" equal to estimated number of people.
+            GROUP_MIN_WIDTH = 120.0   # px; below this, treat as single person
+            AVG_PERSON_WIDTH = 40.0   # px; estimated width of one person in your view
+            MAX_GROUP_SIZE = 5        # avoid insane group counts from one box
+
+            if width >= GROUP_MIN_WIDTH:
+                print("This is a group")
+                est_group = max(1, int(round(width / AVG_PERSON_WIDTH)))
+                group_weight = min(est_group, MAX_GROUP_SIZE)
+            else:
+                group_weight = 1
+            
+            inside_poly = np.array([
+                [4,3],
+                [438,5],
+                [442,191],
+                [5,494]
+            ], dtype=np.int32)
+            
+            outside_poly = np.array([
+                [377,570],
+                [676,203],
+                [824,284],
+                [762,569]
+            ], dtype=np.int32)
+
+            # Single logical track per box, but with a \"weight\" that tells us how many
+            # people we think are inside that box (for count/flow updates).
+
+            pos = [middle_X, middle_Y]
+            base_value = {
+                "color": personVector,
+                "croppedImage": removeBackground(cropImage),
+                "position": pos,
+                "time": 0,
+                "weight": group_weight,
+            }
+
+            if (inside_point(inside_poly, (intx0,inty0))):
+                logging.info(f"We just initalized a person and we put them initally inside with a weight of {group_weight}")
+                v = base_value.copy()
+                v["direction"] = True
+                flow.push_value(v)
+            elif (inside_point(outside_poly, (intx1,inty1))):
+                logging.info(f"We just initalized a person and we put them initally outside with a weight of {group_weight}")
+                v = base_value.copy()
+                v["direction"] = False
+                flow.push_value(v)
+
+        flow_remove = []
+
+        for idx, timer in enumerate(flow.counted):
+            missed_frames = scalar_utils.to_int(timer["time"])
+            direction = scalar_utils.to_bool(timer["direction"])
+            weight = timer.get("weight", 1)
+            if missed_frames >= MISSING_FRAMES_THRESHOLD and direction:
+                # Last seen in outside_poly (entrance) → treat as entered dining hall
+                logging.info("Put it in flow.inside (entered)")
+                for _ in range(weight):
+                    flow.inside.append(timer)
+                flow_remove.append(idx)
+            elif missed_frames >= MISSING_FRAMES_THRESHOLD and not direction:
+                logging.info("Put in flow.outside (exited)")
+                for _ in range(weight):
+                    flow.outside.append(timer)
+                flow_remove.append(idx)
+            elif missed_frames >= MISSING_FRAMES_THRESHOLD:
+                flow_remove.append(idx)
+        
+        for item_remove in sorted(flow_remove, reverse=True):
+            del flow.counted[item_remove]
+        
+        # Tune thresholds so the status moves more often; each ~15–20 people shifts a level
+        INSIDE_STEP = 20
+        OUTSIDE_STEP = 20
+        if len(flow.inside) >= INSIDE_STEP:
+            if(len(flow.out_overflow) != 0):
+                flow.out_overflow.pop()
+            else:
+                current_idx += 1
+            flow.inside = []
+
+        if len(flow.outside) >= OUTSIDE_STEP:
+            if(len(flow.in_overflow) != 0):
+                flow.in_overflow.pop()
+            else:
+                current_idx -= 1
+            flow.outside = []
+        
+        if(current_idx >= 5):
+            flow.in_overflow.append("over")
+            current_idx = 5
+        elif(current_idx <= 0):
+            flow.out_overflow.append("over")
+            current_idx = 1
+
+        logging.info(f"Flow Inside {len(flow.inside)}. Flow Outside: {len(flow.outside)}. Current overall: {messages[current_idx]}")
+        for people in flow.counted:
+            print(people["direction"])
+
+        print("Inside: ", len(flow.inside))
+        print("Outside: ", len(flow.outside))
+        print(messages[current_idx])
+
+    webChrome.close()
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+            logging.info("Already in there")
+            cv2.imshow(entry["croppedImage"])
+            cv2.waitKey(0)
+            cv2.imshow(value["croppedImage"])
+            cv2.waitKey(0)
+
+            

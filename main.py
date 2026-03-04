@@ -182,7 +182,7 @@ def main():
     MISSING_FRAMES_THRESHOLD = 3
     # This opens the google chrome
     webChrome = webdriver.Chrome()
-    webChrome.get(CARRILLO_URL)
+    # webChrome.get(CARRILLO_URL)
 
     #Important Paths:
     pathtoBlank = os.getenv("BLANKJPG")
