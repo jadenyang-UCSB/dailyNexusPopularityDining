@@ -45,11 +45,6 @@ logging.basicConfig(
 
 # Code from separate files
 import seleniumFuncs
-import kaggleFuncs
-import organizationData
-import dataprep
-import trainModel
-import resNet
 import scalar_utils
 
 import osnet
