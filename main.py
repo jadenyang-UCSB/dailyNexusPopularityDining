@@ -14,13 +14,12 @@ if not CARRILLO_URL:
     raise RuntimeError("CARRILLO_URL is missing. Put it in .env")
 
 
-# from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup
 import requests
 from selenium.webdriver.common.by import By
 from selenium import webdriver
 import time
 import numpy as np
-# from PIL import Image
 import kagglehub
 
 from tensorflow.keras.models import load_model
