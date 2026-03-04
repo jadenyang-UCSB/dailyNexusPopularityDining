@@ -22,6 +22,7 @@ import time
 import numpy as np
 # from PIL import Image
 import kagglehub
+
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import load_img, img_to_array
 from ultralytics import YOLO
@@ -83,8 +84,6 @@ class wrapper:
         
 
         if score >= mean:
-            print(score)
-            print("In there")
             logging.info("Already in there")
             entry["color"] = value["color"]
             entry["croppedImage"] = value["croppedImage"]
@@ -96,7 +95,6 @@ class wrapper:
             entry["direction"] = value["direction"]
             entry["position"] = value["position"]
         else:
-            print("New person, adding into the counted array")
             self.counted.append(value)
         
 
@@ -131,7 +129,6 @@ def process_crop(image):
 
 def compareHistogram(image_A, image_B):
     if(image_B.shape[0] < 40):
-        print("Shape is too small")
         return 1.0
 
     a = process_crop(image_A)
@@ -149,9 +146,7 @@ def compareHistogram(image_A, image_B):
     lowerB = image_B[mid_b : , :]
 
     upperHist = cv2.compareHist(hsv_hist(upperA), hsv_hist(upperB), cv2.HISTCMP_BHATTACHARYYA)
-    # print(upperHist)
     lowerHist = cv2.compareHist(hsv_hist(lowerA), hsv_hist(lowerB), cv2.HISTCMP_BHATTACHARYYA)
-    # print(lowerHist)
     return upperHist * 0.5 + lowerHist * 0.5
 
 def compareVector(vec_A, vec_B):
@@ -165,10 +160,6 @@ def compareVector(vec_A, vec_B):
     if denom == 0:
         return 0.0
     overall = number/denom
-    # print(overall)
-    
-    # if(overall >= 0.66):
-    #     return overall
     return overall
 
 def comparePosition(pos_A, pos_B):
@@ -222,26 +213,12 @@ def main():
         # Coordinate finder
         npBlank = cv2.imread(pathtoBlank)
 
-        # cv2.imshow("Image",npBlank)
-        # cv2.setMouseCallback("Image", click_event)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows
-
         #Ensures that it's a different picture each time
         if(previous_frame is not None):
             if(np.array_equal(previous_frame,npBlank)):
                 continue
         previous_frame = npBlank.copy()
         tracking = model(pathtoBlank)
-
-        #Sanity Checker to ensure that the active number is counting
-            #Coming very soon and next feature I hope to implement
-
-        # data_fitting = load_img(pathtoBlank, target_size = (128,128))
-        # array_target = np.array(data_fitting)/255
-        # fittedData = np.expand_dims(array_target,axis=0)
-        # sanityCheck = people_counter_model.predict(fittedData)
-        # print(sanityCheck)
     
         #Detection stuff
         for b in tracking[0].boxes:
@@ -270,12 +247,10 @@ def main():
             cropImage = image[inty0:inty1,intx0:intx1]
             personVector = osnet.osnet_vector(cropImage)
 
-            # --- Simple group handling (weight, not duplicate tracks) ---
-            # If a bounding box is very wide, treat it as a group and give this track a
-            # \"weight\" equal to estimated number of people.
-            GROUP_MIN_WIDTH = 120.0   # px; below this, treat as single person
-            AVG_PERSON_WIDTH = 40.0   # px; estimated width of one person in your view
-            MAX_GROUP_SIZE = 5        # avoid insane group counts from one box
+            # Group handaling
+            GROUP_MIN_WIDTH = 120.0 
+            AVG_PERSON_WIDTH = 40.0 
+            MAX_GROUP_SIZE = 5 
 
             if width >= GROUP_MIN_WIDTH:
                 print("This is a group")
@@ -298,8 +273,7 @@ def main():
                 [762,569]
             ], dtype=np.int32)
 
-            # Single logical track per box, but with a \"weight\" that tells us how many
-            # people we think are inside that box (for count/flow updates).
+            # people inside or outside
 
             pos = [middle_X, middle_Y]
             base_value = {
