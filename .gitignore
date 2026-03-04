@@ -15,6 +15,15 @@ __pycache__/
 # generated images/logs
 copy_image.jpg
 blank.jpeg
+previous.jpeg
 
 # mac
 .DS_Store.env
+organizationData.py
+peopleCounter.keras
+kaggleFuncs.py
+dataprep.py
+resNet.py
+trainModel.py
+comments.txt
+datasets
