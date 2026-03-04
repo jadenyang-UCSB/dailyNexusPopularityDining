@@ -26,5 +26,5 @@ dataprep.py
 resNet.py
 trainModel.py
 comments.txt
-datasets
+datasets/
 messages.txt
