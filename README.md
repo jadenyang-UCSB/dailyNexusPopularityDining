@@ -16,8 +16,6 @@ Put the UCSB API Carillo Key in there in this format
 '''
 API_KEYCARRILLO =  "Carillo Key"
 
-API_KEYKAGGLE = "Kaggle API Key"
-
 COPYJPG = "path to the picture labeled as copy_image.jpg"
 BLANKJPG = "path to the picture blank.jpeg"
 '''
